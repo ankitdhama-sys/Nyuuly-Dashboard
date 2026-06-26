@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analytics Dashboard — Nyuuly & WORK JAPAN</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-brand">Analytics Dashboard</div>
+    <div class="nav-links">
+      <a href="/" class="active">Dashboard</a>
+      <a href="/upload">Upload Data</a>
+      <span class="nav-updated" id="lastUpdated">Last updated: —</span>
+    </div>
+  </nav>
+
+  <div class="controls">
+    <div class="tab-group" id="companyTabs">
+      <button class="tab-btn active" data-company="all">All</button>
+      <button class="tab-btn" data-company="nyuuly">Nyuuly</button>
+      <button class="tab-btn" data-company="workjapan">WORK JAPAN</button>
+    </div>
+
+    <div class="date-group" id="dateGroup">
+      <button class="tab-btn active" data-range="7">Last 7 Days</button>
+      <button class="tab-btn" data-range="30">Last 30 Days</button>
+      <button class="tab-btn" data-range="90">Last 3 Months</button>
+      <button class="tab-btn" data-range="custom">Custom Range</button>
+      <input type="date" id="startDate" style="display:none">
+      <input type="date" id="endDate" style="display:none">
+    </div>
+
+    <div class="toggle-group">
+      <label>Compare Mode</label>
+      <label class="toggle-switch">
+        <input type="checkbox" id="compareMode">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <main class="main">
+    <!-- Section 1: Social Media -->
+    <section class="section" id="section-social">
+      <div class="section-header" data-section="social">
+        <h2>Social Media Performance</h2>
+        <span class="collapse-icon">▼</span>
+      </div>
+      <div class="section-body">
+        <div class="kpi-row" id="socialKpis"></div>
+        <div class="chart-grid">
+          <div class="chart-container full-width">
+            <div class="chart-header"><h3>Views & Reach Over Time</h3><button class="chart-download" data-chart="chartViewsReach">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartViewsReach"></canvas></div>
+          </div>
+          <div class="chart-container">
+            <div class="chart-header"><h3>Top 10 Posts — Engagement Breakdown</h3><button class="chart-download" data-chart="chartEngagement">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartEngagement"></canvas></div>
+          </div>
+          <div class="chart-container">
+            <div class="chart-header"><h3>Post Type Distribution</h3><button class="chart-download" data-chart="chartPostTypes">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartPostTypes"></canvas></div>
+          </div>
+        </div>
+        <h3 style="font-size:0.9rem;color:var(--text-muted);margin-bottom:0.5rem">Top Performing Posts</h3>
+        <div class="table-wrap"><table id="socialTable"><thead></thead><tbody></tbody></table></div>
+        <div class="pagination" id="socialPagination"></div>
+      </div>
+    </section>
+
+    <!-- Section 2: Funnel -->
+    <section class="section" id="section-funnel">
+      <div class="section-header" data-section="funnel">
+        <h2>Website Funnel (GA4)</h2>
+        <span class="collapse-icon">▼</span>
+      </div>
+      <div class="section-body">
+        <div class="chart-grid">
+          <div class="chart-container full-width">
+            <div class="chart-header"><h3>Funnel Steps by Device</h3><button class="chart-download" data-chart="chartFunnel">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartFunnel"></canvas></div>
+          </div>
+          <div class="chart-container">
+            <div class="chart-header"><h3>Device Split — Step 1</h3><button class="chart-download" data-chart="chartFunnelDevice">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartFunnelDevice"></canvas></div>
+          </div>
+        </div>
+        <h3 style="font-size:0.9rem;color:var(--text-muted);margin-bottom:0.5rem">Funnel Details</h3>
+        <div class="table-wrap"><table id="funnelTable"><thead></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- Section 3: Traffic -->
+    <section class="section" id="section-traffic">
+      <div class="section-header" data-section="traffic">
+        <h2>Traffic Acquisition (GA4)</h2>
+        <span class="collapse-icon">▼</span>
+      </div>
+      <div class="section-body">
+        <div class="kpi-row" id="trafficKpis"></div>
+        <div class="chart-grid">
+          <div class="chart-container">
+            <div class="chart-header"><h3>Sessions by Channel</h3><button class="chart-download" data-chart="chartTrafficDonut">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartTrafficDonut"></canvas></div>
+          </div>
+          <div class="chart-container">
+            <div class="chart-header"><h3>Channels by Engaged Sessions</h3><button class="chart-download" data-chart="chartTrafficBar">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartTrafficBar"></canvas></div>
+          </div>
+          <div class="chart-container full-width">
+            <div class="chart-header"><h3>Avg Engagement Time by Channel</h3><button class="chart-download" data-chart="chartTrafficEngagement">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartTrafficEngagement"></canvas></div>
+          </div>
+        </div>
+        <h3 style="font-size:0.9rem;color:var(--text-muted);margin-bottom:0.5rem">Channel Performance</h3>
+        <div class="table-wrap"><table id="trafficTable"><thead></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- Section 4: Pages -->
+    <section class="section" id="section-pages">
+      <div class="section-header" data-section="pages">
+        <h2>Pages & Screens (GA4)</h2>
+        <span class="collapse-icon">▼</span>
+      </div>
+      <div class="section-body">
+        <div class="chart-grid">
+          <div class="chart-container">
+            <div class="chart-header"><h3>Top 15 Pages by Views</h3><button class="chart-download" data-chart="chartPagesBar">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartPagesBar"></canvas></div>
+          </div>
+          <div class="chart-container">
+            <div class="chart-header"><h3>Views vs Engagement Time</h3><button class="chart-download" data-chart="chartPagesScatter">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartPagesScatter"></canvas></div>
+          </div>
+        </div>
+        <h3 style="font-size:0.9rem;color:var(--text-muted);margin-bottom:0.5rem">Page Performance</h3>
+        <div class="table-wrap"><table id="pagesTable"><thead></thead><tbody></tbody></table></div>
+        <div class="pagination" id="pagesPagination"></div>
+      </div>
+    </section>
+
+    <!-- Section 5: Compare -->
+    <section class="section compare-section" id="section-compare" style="display:none">
+      <div class="section-header" data-section="compare">
+        <h2>Cross-Company Comparison</h2>
+        <span class="collapse-icon">▼</span>
+      </div>
+      <div class="section-body">
+        <div class="chart-grid">
+          <div class="chart-container">
+            <div class="chart-header"><h3>Sessions & Engagement</h3><button class="chart-download" data-chart="chartCompareBar">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartCompareBar"></canvas></div>
+          </div>
+          <div class="chart-container">
+            <div class="chart-header"><h3>Normalized Metrics Radar</h3><button class="chart-download" data-chart="chartCompareRadar">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartCompareRadar"></canvas></div>
+          </div>
+        </div>
+        <h3 style="font-size:0.9rem;color:var(--text-muted);margin-bottom:0.5rem">Summary Comparison</h3>
+        <div class="table-wrap"><table id="compareTable"><thead></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast-container" id="toastContainer"></div>
+  <script src="/dashboard.js"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "name": "nyuuly-analytics-dashboard",
+  "version": "1.0.0",
+  "description": "Multi-company analytics dashboard for Nyuuly and WORK JAPAN",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "basic-auth": "^2.0.1",
+    "csv-parse": "^5.6.0",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "multer": "^1.4.5-lts.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
