@@ -15,27 +15,32 @@
     </div>
   </nav>
 
-  <div class="upload-page">
-    <div class="upload-card">
-      <h1>Upload CSV Data</h1>
-      <p>Upload weekly exports from Instagram/Meta or Google Analytics 4. File type is auto-detected.</p>
+  <div class="upload-page upload-page-wide">
+    <div class="upload-header">
+      <h1>Weekly Data Upload</h1>
+      <p>Upload all 4 CSV exports each week. Each section below is for one file type — the status badge shows whether it has been uploaded for the selected company.</p>
 
-      <form id="uploadForm">
-        <div class="form-group">
-          <label for="company">Company</label>
-          <select id="company" name="company" required>
-            <option value="nyuuly">Nyuuly</option>
-            <option value="workjapan">WORK JAPAN</option>
-          </select>
+      <div class="form-group upload-company-row">
+        <label for="company">Company</label>
+        <select id="company" name="company">
+          <option value="nyuuly">Nyuuly</option>
+          <option value="workjapan">WORK JAPAN</option>
+        </select>
+      </div>
+
+      <div class="upload-progress" id="uploadProgress">
+        <div class="upload-progress-label">
+          <span id="progressText">0 of 4 files uploaded</span>
+          <span id="progressPct">0%</span>
         </div>
-
-        <div class="form-group">
-          <label for="file">CSV File</label>
-          <input type="file" id="file" name="file" accept=".csv" required>
+        <div class="upload-progress-bar">
+          <div class="upload-progress-fill" id="progressFill" style="width:0%"></div>
         </div>
+      </div>
+    </div>
 
-        <button type="submit" class="btn-primary" id="uploadBtn">Upload</button>
-      </form>
+    <div class="upload-slots" id="uploadSlots">
+      <!-- filled by JS -->
     </div>
 
     <div class="section">
@@ -67,10 +72,37 @@
   <div class="toast-container" id="toastContainer"></div>
 
   <script>
-    const form = document.getElementById('uploadForm');
-    const uploadBtn = document.getElementById('uploadBtn');
+    const SLOTS = [
+      {
+        type: 'social',
+        title: '1. Social Media Posts',
+        hint: 'Instagram / Meta Business Suite export with Post ID, Views, Reach, etc.',
+        accept: '.csv',
+      },
+      {
+        type: 'funnel',
+        title: '2. Funnel Data (GA4)',
+        hint: 'GA4 Funnel exploration export — Step, Device category, Active users.',
+        accept: '.csv',
+      },
+      {
+        type: 'traffic',
+        title: '3. Traffic Acquisition (GA4)',
+        hint: 'GA4 Traffic acquisition report — Session primary channel group.',
+        accept: '.csv',
+      },
+      {
+        type: 'pages',
+        title: '4. Pages & Screens (GA4)',
+        hint: 'GA4 Pages and screens report — Page path and screen class.',
+        accept: '.csv',
+      },
+    ];
+
+    const companySelect = document.getElementById('company');
     const historyBody = document.getElementById('historyBody');
     const toastContainer = document.getElementById('toastContainer');
+    const uploadSlots = document.getElementById('uploadSlots');
 
     function showToast(message, type = 'success') {
       const toast = document.createElement('div');
@@ -81,12 +113,73 @@
     }
 
     function formatType(type) {
-      const map = { social: 'Social Media', funnel: 'Funnel Data', traffic: 'Traffic Acquisition', pages: 'Pages & Screens' };
+      const map = {
+        social: 'Social Media',
+        funnel: 'Funnel Data',
+        traffic: 'Traffic Acquisition',
+        pages: 'Pages & Screens',
+      };
       return map[type] || type;
     }
 
     function formatCompany(c) {
       return c === 'workjapan' ? 'WORK JAPAN' : 'Nyuuly';
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function renderSlots(status) {
+      uploadSlots.innerHTML = SLOTS.map((slot) => {
+        const info = status?.files?.[slot.type] || { uploaded: false };
+        const badgeClass = info.uploaded ? 'slot-badge-done' : 'slot-badge-pending';
+        const badgeText = info.uploaded ? 'Uploaded' : 'Not uploaded';
+        const meta = info.uploaded
+          ? `<div class="slot-meta">${escapeHtml(info.filename)} · ${info.rowsAdded} rows · ${info.uploadedAt}</div>`
+          : `<div class="slot-meta slot-meta-muted">${slot.hint}</div>`;
+
+        return `
+          <div class="upload-slot ${info.uploaded ? 'upload-slot-done' : ''}" data-type="${slot.type}">
+            <div class="upload-slot-header">
+              <h3>${slot.title}</h3>
+              <span class="slot-badge ${badgeClass}">${badgeText}</span>
+            </div>
+            ${meta}
+            <form class="slot-form" data-type="${slot.type}">
+              <input type="file" name="file" accept="${slot.accept}" required>
+              <button type="submit" class="btn-primary btn-slot">Upload ${formatType(slot.type)}</button>
+            </form>
+          </div>
+        `;
+      }).join('');
+
+      uploadSlots.querySelectorAll('.slot-form').forEach((form) => {
+        form.addEventListener('submit', handleSlotUpload);
+      });
+    }
+
+    function updateProgress(status) {
+      const count = status?.uploadedCount || 0;
+      const total = status?.totalRequired || 4;
+      const pct = Math.round((count / total) * 100);
+      document.getElementById('progressText').textContent = `${count} of ${total} files uploaded for ${formatCompany(status?.company || companySelect.value)}`;
+      document.getElementById('progressPct').textContent = `${pct}%`;
+      document.getElementById('progressFill').style.width = `${pct}%`;
+      document.getElementById('uploadProgress').classList.toggle('upload-progress-complete', status?.allComplete);
+    }
+
+    async function loadStatus() {
+      try {
+        const res = await fetch(`/api/upload-status?company=${companySelect.value}`);
+        const status = await res.json();
+        renderSlots(status);
+        updateProgress(status);
+      } catch (err) {
+        console.error('Failed to load upload status:', err);
+      }
     }
 
     async function loadHistory() {
@@ -99,7 +192,7 @@
           return;
         }
 
-        historyBody.innerHTML = data.history.map(h => `
+        historyBody.innerHTML = data.history.map((h) => `
           <tr>
             <td>${escapeHtml(h.filename)}</td>
             <td>${formatCompany(h.company)}</td>
@@ -114,49 +207,48 @@
       }
     }
 
-    function escapeHtml(str) {
-      const div = document.createElement('div');
-      div.textContent = str;
-      return div.innerHTML;
-    }
-
-    form.addEventListener('submit', async (e) => {
+    async function handleSlotUpload(e) {
       e.preventDefault();
-      const fileInput = document.getElementById('file');
-      const company = document.getElementById('company').value;
+      const form = e.target;
+      const type = form.dataset.type;
+      const fileInput = form.querySelector('input[type="file"]');
+      const btn = form.querySelector('button');
+      const company = companySelect.value;
 
       if (!fileInput.files.length) return;
 
-      uploadBtn.disabled = true;
-      uploadBtn.textContent = 'Uploading...';
+      btn.disabled = true;
+      btn.textContent = 'Uploading...';
 
       const formData = new FormData();
       formData.append('file', fileInput.files[0]);
       formData.append('company', company);
+      formData.append('expectedType', type);
 
       try {
-        const res = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-        });
-
+        const res = await fetch('/api/upload', { method: 'POST', body: formData });
         const data = await res.json();
 
         if (!res.ok) {
           showToast(data.error || 'Upload failed', 'error');
         } else {
-          showToast(`${data.rowsAdded} rows added, ${data.rowsSkipped} duplicates skipped (${formatType(data.fileType)})`);
+          showToast(`${formatType(data.fileType)}: ${data.rowsAdded} rows added, ${data.rowsSkipped} skipped`);
           fileInput.value = '';
-          loadHistory();
+          await loadStatus();
+          await loadHistory();
         }
       } catch (err) {
         showToast('Upload failed: ' + err.message, 'error');
       } finally {
-        uploadBtn.disabled = false;
-        uploadBtn.textContent = 'Upload';
+        btn.disabled = false;
+        btn.textContent = `Upload ${formatType(type)}`;
       }
-    });
+    }
 
+    companySelect.addEventListener('change', loadStatus);
+
+    renderSlots();
+    loadStatus();
     loadHistory();
   </script>
 </body>

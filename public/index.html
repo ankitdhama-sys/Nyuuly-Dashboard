@@ -33,20 +33,32 @@
       <input type="date" id="endDate" style="display:none">
     </div>
 
-    <div class="toggle-group">
-      <label>Compare Mode</label>
-      <label class="toggle-switch">
-        <input type="checkbox" id="compareMode">
-        <span class="toggle-slider"></span>
-      </label>
+    <div class="data-status" id="dataStatus" title="Weekly CSV upload status">
+      <span class="data-status-label">Data files:</span>
+      <span id="dataStatusDots">—</span>
     </div>
   </div>
 
   <main class="main">
+    <!-- Customer Journeys -->
+    <section class="section journey-section" id="section-journeys">
+      <div class="section-header" data-section="journeys">
+        <h2>Customer Journeys</h2>
+        <span class="collapse-icon">▼</span>
+      </div>
+      <div class="section-body">
+        <p class="journey-intro">Built from your 4 weekly CSVs — social (awareness), traffic (arrival), pages (navigation), funnel (conversion &amp; drop-off).</p>
+        <div class="journey-tabs" id="journeyTabs"></div>
+        <div id="journeyPanel"></div>
+        <h3 class="subsection-title">Landing Pages &amp; Likely Next Steps</h3>
+        <p class="subsection-hint">From Pages &amp; Screens CSV — where users land and popular paths they visit next.</p>
+        <div class="table-wrap"><table id="landingTable"><thead></thead><tbody></tbody></table></div>
+      </div>
+    </section>
     <!-- Section 1: Social Media -->
     <section class="section" id="section-social">
       <div class="section-header" data-section="social">
-        <h2>Social Media Performance</h2>
+        <h2>1. Social Media — Awareness</h2>
         <span class="collapse-icon">▼</span>
       </div>
       <div class="section-body">
@@ -71,32 +83,10 @@
       </div>
     </section>
 
-    <!-- Section 2: Funnel -->
-    <section class="section" id="section-funnel">
-      <div class="section-header" data-section="funnel">
-        <h2>Website Funnel (GA4)</h2>
-        <span class="collapse-icon">▼</span>
-      </div>
-      <div class="section-body">
-        <div class="chart-grid">
-          <div class="chart-container full-width">
-            <div class="chart-header"><h3>Funnel Steps by Device</h3><button class="chart-download" data-chart="chartFunnel">PNG</button></div>
-            <div class="chart-wrapper"><canvas id="chartFunnel"></canvas></div>
-          </div>
-          <div class="chart-container">
-            <div class="chart-header"><h3>Device Split — Step 1</h3><button class="chart-download" data-chart="chartFunnelDevice">PNG</button></div>
-            <div class="chart-wrapper"><canvas id="chartFunnelDevice"></canvas></div>
-          </div>
-        </div>
-        <h3 style="font-size:0.9rem;color:var(--text-muted);margin-bottom:0.5rem">Funnel Details</h3>
-        <div class="table-wrap"><table id="funnelTable"><thead></thead><tbody></tbody></table></div>
-      </div>
-    </section>
-
-    <!-- Section 3: Traffic -->
+    <!-- Section 2: Traffic -->
     <section class="section" id="section-traffic">
       <div class="section-header" data-section="traffic">
-        <h2>Traffic Acquisition (GA4)</h2>
+        <h2>2. Traffic — How Users Arrive</h2>
         <span class="collapse-icon">▼</span>
       </div>
       <div class="section-body">
@@ -120,10 +110,10 @@
       </div>
     </section>
 
-    <!-- Section 4: Pages -->
+    <!-- Section 3: Pages -->
     <section class="section" id="section-pages">
       <div class="section-header" data-section="pages">
-        <h2>Pages & Screens (GA4)</h2>
+        <h2>3. Pages — Where Users Navigate</h2>
         <span class="collapse-icon">▼</span>
       </div>
       <div class="section-body">
@@ -143,25 +133,25 @@
       </div>
     </section>
 
-    <!-- Section 5: Compare -->
-    <section class="section compare-section" id="section-compare" style="display:none">
-      <div class="section-header" data-section="compare">
-        <h2>Cross-Company Comparison</h2>
+    <!-- Section 4: Funnel -->
+    <section class="section" id="section-funnel">
+      <div class="section-header" data-section="funnel">
+        <h2>4. Funnel — Conversion &amp; Drop-off</h2>
         <span class="collapse-icon">▼</span>
       </div>
       <div class="section-body">
         <div class="chart-grid">
-          <div class="chart-container">
-            <div class="chart-header"><h3>Sessions & Engagement</h3><button class="chart-download" data-chart="chartCompareBar">PNG</button></div>
-            <div class="chart-wrapper"><canvas id="chartCompareBar"></canvas></div>
+          <div class="chart-container full-width">
+            <div class="chart-header"><h3>Funnel Steps by Device</h3><button class="chart-download" data-chart="chartFunnel">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartFunnel"></canvas></div>
           </div>
           <div class="chart-container">
-            <div class="chart-header"><h3>Normalized Metrics Radar</h3><button class="chart-download" data-chart="chartCompareRadar">PNG</button></div>
-            <div class="chart-wrapper"><canvas id="chartCompareRadar"></canvas></div>
+            <div class="chart-header"><h3>Device Split — Step 1</h3><button class="chart-download" data-chart="chartFunnelDevice">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartFunnelDevice"></canvas></div>
           </div>
         </div>
-        <h3 style="font-size:0.9rem;color:var(--text-muted);margin-bottom:0.5rem">Summary Comparison</h3>
-        <div class="table-wrap"><table id="compareTable"><thead></thead><tbody></tbody></table></div>
+        <h3 style="font-size:0.9rem;color:var(--text-muted);margin-bottom:0.5rem">Funnel Details</h3>
+        <div class="table-wrap"><table id="funnelTable"><thead></thead><tbody></tbody></table></div>
       </div>
     </section>
   </main>

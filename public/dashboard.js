@@ -13,8 +13,10 @@ let state = {
   dateRange: '7',
   startDate: null,
   endDate: null,
-  compareMode: false,
+  activeJourney: 'awareness',
 };
+
+let journeyData = null;
 
 let socialPosts = [];
 let funnelRows = [];
@@ -106,10 +108,252 @@ function buildQuery() {
   return params.toString();
 }
 
-function showCompareSection() {
-  const el = document.getElementById('section-compare');
-  el.style.display = (state.compareMode || state.company === 'all') ? 'block' : 'none';
+function renderDataStatus(completeness) {
+  const el = document.getElementById('dataStatusDots');
+  if (!completeness) {
+    el.innerHTML = '—';
+    return;
+  }
+  const labels = {
+    social: 'Social',
+    funnel: 'Funnel',
+    traffic: 'Traffic',
+    pages: 'Pages',
+  };
+  el.innerHTML = Object.entries(labels).map(([key, label]) => {
+    const ok = completeness[key];
+    return `<span class="data-dot ${ok ? 'data-dot-ok' : 'data-dot-missing'}" title="${label}: ${ok ? 'loaded' : 'missing'}">${label}</span>`;
+  }).join('');
 }
+
+function renderJourneyTabs(journeys) {
+  const tabs = document.getElementById('journeyTabs');
+  tabs.innerHTML = journeys.map((j) => `
+    <button class="journey-tab ${state.activeJourney === j.id ? 'active' : ''} ${j.status === 'future' ? 'future' : ''}"
+      data-journey="${j.id}">
+      ${j.title}
+      ${j.status === 'future' ? '<span class="future-badge">Future</span>' : ''}
+    </button>
+  `).join('');
+
+  tabs.querySelectorAll('.journey-tab').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.activeJourney = btn.dataset.journey;
+      renderJourneyPanel(journeyData);
+      renderJourneyTabs(journeyData.journeys);
+    });
+  });
+}
+
+function renderJourneyPanel(data) {
+  const panel = document.getElementById('journeyPanel');
+  if (!data || !data.journeys?.length) {
+    panel.innerHTML = '<div class="empty-state">Upload all 4 CSV files on the <a href="/upload">upload page</a> to see customer journeys.</div>';
+    return;
+  }
+
+  const journey = data.journeys.find((j) => j.id === state.activeJourney) || data.journeys[0];
+  let html = `
+    <div class="journey-card">
+      <div class="journey-card-header">
+        <div>
+          <h3>${journey.title}</h3>
+          <p class="journey-sources">Sources: ${journey.subtitle}</p>
+        </div>
+        ${journey.status === 'future' ? '<span class="future-badge large">Coming soon</span>' : ''}
+      </div>
+      <p class="journey-desc">${journey.description}</p>
+  `;
+
+  if (journey.id === 'awareness') {
+    html += `
+      <div class="kpi-row">
+        <div class="kpi-card"><div class="label">Social Views</div><div class="value">${formatNum(journey.kpis.socialViews)}</div></div>
+        <div class="kpi-card"><div class="label">Social Reach</div><div class="value">${formatNum(journey.kpis.socialReach)}</div></div>
+        <div class="kpi-card"><div class="label">Website Sessions</div><div class="value">${formatNum(journey.kpis.sessions)}</div></div>
+        <div class="kpi-card"><div class="label">Engagement Rate</div><div class="value">${formatPct(journey.kpis.engagementRate)}</div></div>
+      </div>
+      <h4 class="subsection-title">Top Arrival Channels</h4>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Channel</th><th>Sessions</th><th>Engaged Sessions</th></tr></thead>
+        <tbody>${(journey.topChannels || []).map((c) => `
+          <tr><td>${c.channel}</td><td>${formatNum(c.sessions)}</td><td>${formatNum(c.engagedSessions)}</td></tr>
+        `).join('') || '<tr><td colspan="3" class="empty-state">No traffic data</td></tr>'}
+        </tbody>
+      </table></div>
+    `;
+  } else if (journey.id === 'explore-no-action') {
+    html += `
+      <div class="kpi-row">
+        <div class="kpi-card"><div class="label">Exploration Page Views</div><div class="value">${formatNum(journey.kpis.pageViews)}</div></div>
+        <div class="kpi-card"><div class="label">Active Users (browse)</div><div class="value">${formatNum(journey.kpis.activeUsers)}</div></div>
+        <div class="kpi-card"><div class="label">Est. Browse Only</div><div class="value">${formatNum(journey.kpis.estimatedBrowseOnly)}</div></div>
+        <div class="kpi-card"><div class="label">Browse Rate</div><div class="value">${formatPct(journey.kpis.browseRate)}</div></div>
+      </div>
+      ${renderMiniFunnel(journey.ga4Funnel)}
+      <h4 class="subsection-title">Top Exploration Pages</h4>
+      ${renderPageListTable(journey.topPages)}
+      <h4 class="subsection-title">How They Arrived</h4>
+      <div class="channel-chips">${(journey.entryChannels || []).map((c) =>
+        `<span class="channel-chip">${c.channel}: ${formatNum(c.sessions)}</span>`
+      ).join('') || '<span class="channel-chip muted">Upload traffic CSV</span>'}</div>
+    `;
+  } else if (journey.id === 'explore-convert') {
+    html += `
+      <div class="kpi-row">
+        <div class="kpi-card"><div class="label">Conversion Page Views</div><div class="value">${formatNum(journey.kpis.pageViews)}</div></div>
+        <div class="kpi-card"><div class="label">Active Users</div><div class="value">${formatNum(journey.kpis.activeUsers)}</div></div>
+        <div class="kpi-card"><div class="label">Key Events</div><div class="value">${formatNum(journey.kpis.keyEvents)}</div></div>
+        <div class="kpi-card"><div class="label">Conversion Rate</div><div class="value">${formatPct(journey.kpis.conversionRate)}</div></div>
+      </div>
+      ${renderMiniFunnel(journey.ga4Funnel)}
+      <h4 class="subsection-title">Sign-up &amp; Subscribe Pages</h4>
+      ${renderPageListTable(journey.topPages, true)}
+    `;
+  } else if (journey.id === 'welcome-package') {
+    html += `
+      <div class="kpi-row">
+        <div class="kpi-card"><div class="label">Welcome Package Views</div><div class="value">${formatNum(journey.kpis.pageViews)}</div></div>
+        <div class="kpi-card"><div class="label">Active Users</div><div class="value">${formatNum(journey.kpis.activeUsers)}</div></div>
+        <div class="kpi-card"><div class="label">Key Events</div><div class="value">${formatNum(journey.kpis.keyEvents)}</div></div>
+      </div>
+      ${renderPageListTable(journey.topPages)}
+      <p class="journey-note">This journey is marked as future — data will grow when the welcome package flow goes live.</p>
+    `;
+  } else if (journey.id === 'wj-application') {
+    html += `
+      <div class="kpi-row">
+        <div class="kpi-card"><div class="label">Funnel Started</div><div class="value">${formatNum(journey.kpis.started)}</div></div>
+        <div class="kpi-card"><div class="label">Reached Last Step</div><div class="value">${formatNum(journey.kpis.completed)}</div></div>
+        <div class="kpi-card"><div class="label">Overall Completion</div><div class="value">${formatPct(journey.kpis.overallCompletion)}</div></div>
+        <div class="kpi-card abandon-red"><div class="label">Biggest Drop-off</div><div class="value" style="font-size:1rem">${journey.kpis.biggestDropOffStep} (${formatPct(journey.kpis.biggestDropOffPct)})</div></div>
+      </div>
+      <h4 class="subsection-title">Application Steps (from Pages CSV)</h4>
+      ${renderApplicationFunnel(journey.applicationFunnel)}
+    `;
+  }
+
+  html += `
+    <div class="chart-container journey-chart" id="journeyChartWrap" style="display:none">
+      <div class="chart-header"><h3>Journey Funnel</h3></div>
+      <div class="chart-wrapper"><canvas id="chartJourneyFunnel"></canvas></div>
+    </div>
+  </div>`;
+  panel.innerHTML = html;
+
+  const hasChart = (journey.id === 'wj-application' && journey.applicationFunnel?.length)
+    || (journey.ga4Funnel?.length && journey.id !== 'awareness' && journey.id !== 'welcome-package');
+  const chartWrap = document.getElementById('journeyChartWrap');
+  if (chartWrap) chartWrap.style.display = hasChart ? 'block' : 'none';
+  if (hasChart) renderChartJourneyFunnel(journey);
+}
+
+function renderMiniFunnel(steps) {
+  if (!steps?.length) return '<p class="journey-note">Upload funnel CSV for step-by-step drop-off.</p>';
+  return `
+    <h4 class="subsection-title">GA4 Funnel Steps</h4>
+    <div class="mini-funnel">${steps.map((s, i) => `
+      <div class="mini-funnel-step">
+        <div class="mini-funnel-bar" style="width:${Math.max(8, (s.users / (steps[0].users || 1)) * 100)}%"></div>
+        <span class="mini-funnel-label">${s.stepLabel}</span>
+        <span class="mini-funnel-val">${formatNum(s.users)} users</span>
+        ${i > 0 && s.abandonmentRate ? `<span class="mini-funnel-drop abandon-${s.abandonmentRate > 0.3 ? 'red' : 'yellow'}">−${formatPct(s.abandonmentRate)}</span>` : ''}
+      </div>
+    `).join('')}</div>
+  `;
+}
+
+function renderPageListTable(pages, showKeyEvents = false) {
+  if (!pages?.length) return '<p class="journey-note">No matching pages in date range.</p>';
+  const cols = showKeyEvents
+    ? '<th>Page</th><th>Views</th><th>Users</th><th>Key Events</th>'
+    : '<th>Page</th><th>Views</th><th>Users</th><th>Avg Time</th>';
+  return `<div class="table-wrap"><table>
+    <thead><tr>${cols}</tr></thead>
+    <tbody>${pages.map((p) => showKeyEvents
+      ? `<tr><td>${p.path}</td><td>${formatNum(p.views)}</td><td>${formatNum(p.users)}</td><td>${formatNum(p.keyEvents)}</td></tr>`
+      : `<tr><td>${p.path}</td><td>${formatNum(p.views)}</td><td>${formatNum(p.users)}</td><td>${formatNum(p.avgTime)}s</td></tr>`
+    ).join('')}</tbody>
+  </table></div>`;
+}
+
+function renderApplicationFunnel(steps) {
+  if (!steps?.length) return '<p class="journey-note">Upload pages CSV with application paths.</p>';
+  const maxUsers = steps[0]?.users || steps[0]?.views || 1;
+  return `<div class="app-funnel">${steps.map((s, i) => {
+    const users = s.users || s.views;
+    const width = Math.max(10, (users / maxUsers) * 100);
+    const dropClass = s.dropOffPct > 30 ? 'abandon-red' : s.dropOffPct > 10 ? 'abandon-yellow' : 'abandon-green';
+    return `
+      <div class="app-funnel-step">
+        <div class="app-funnel-step-header">
+          <span>${i + 1}. ${s.label}</span>
+          <span class="app-funnel-path">${s.path}</span>
+        </div>
+        <div class="app-funnel-bar-wrap">
+          <div class="app-funnel-bar" style="width:${width}%"></div>
+          <span>${formatNum(users)} users</span>
+        </div>
+        ${i > 0 ? `<div class="app-funnel-drop ${dropClass}">Drop-off: ${formatPct(s.dropOffPct)} · Retained: ${formatPct(s.retentionPct)}</div>` : ''}
+      </div>
+    `;
+  }).join('')}</div>`;
+}
+
+function renderLandingTable(landingPages) {
+  const table = document.getElementById('landingTable');
+  if (!landingPages?.length) {
+    table.querySelector('thead').innerHTML = '';
+    table.querySelector('tbody').innerHTML = '<tr><td colspan="4" class="empty-state">Upload pages CSV to see landing pages</td></tr>';
+    return;
+  }
+  table.querySelector('thead').innerHTML = '<tr><th>Landing Page</th><th>Views</th><th>Users</th><th>Likely Next Pages</th></tr>';
+  table.querySelector('tbody').innerHTML = landingPages.map((p) => `
+    <tr>
+      <td>${p.path}</td>
+      <td>${formatNum(p.views)}</td>
+      <td>${formatNum(p.users)}</td>
+      <td class="next-pages">${(p.nextLikely || []).map((n) => `<code>${n}</code>`).join(' → ') || '—'}</td>
+    </tr>
+  `).join('');
+}
+
+function renderChartJourneyFunnel(journey) {
+  destroyChart('chartJourneyFunnel');
+  const canvas = document.getElementById('chartJourneyFunnel');
+  if (!canvas) return;
+
+  let steps = [];
+  let label = '';
+
+  if (journey.id === 'wj-application' && journey.applicationFunnel?.length) {
+    steps = journey.applicationFunnel;
+    label = 'Users';
+  } else if (journey.ga4Funnel?.length) {
+    steps = journey.ga4Funnel.map((s) => ({ label: s.stepLabel, users: s.users }));
+    label = 'Active Users';
+  }
+
+  if (!steps.length) return;
+
+  charts.chartJourneyFunnel = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: steps.map((s) => s.label || s.stepLabel),
+      datasets: [{
+        label,
+        data: steps.map((s) => s.users || s.views || 0),
+        backgroundColor: COLORS.nyuuly,
+      }],
+    },
+    options: {
+      ...chartDefaults(),
+      indexAxis: 'y',
+    },
+  });
+}
+
+function showCompareSection() {}
 
 async function loadLastUpdated() {
   try {
@@ -154,9 +398,9 @@ function renderChartViewsReach(timeSeries) {
   if (!timeSeries.length) return;
 
   const dates = [...new Set(timeSeries.map(d => d.date))].sort();
-  const companies = state.compareMode || state.company === 'all'
+  const companies = state.company === 'all'
     ? ['nyuuly', 'workjapan']
-    : [state.company === 'all' ? 'nyuuly' : state.company];
+    : [state.company];
 
   const datasets = [];
   for (const co of companies) {
@@ -172,7 +416,7 @@ function renderChartViewsReach(timeSeries) {
       backgroundColor: 'transparent',
       tension: 0.3,
     });
-    if (state.compareMode || state.company === 'all') {
+    if (state.company === 'all') {
       datasets.push({
         label: `${label} Reach`,
         data: dates.map(d => {
@@ -187,7 +431,7 @@ function renderChartViewsReach(timeSeries) {
     }
   }
 
-  if (!state.compareMode && state.company !== 'all') {
+  if (state.company !== 'all') {
     datasets.push({
       label: 'Reach',
       data: dates.map(d => {
@@ -693,16 +937,21 @@ function renderPagination(containerId, current, total, onChange) {
 
 async function loadDashboard() {
   const q = buildQuery();
-  showCompareSection();
 
   try {
-    const [social, funnel, traffic, pages, summary] = await Promise.all([
+    const [social, funnel, traffic, pages, journeys] = await Promise.all([
       fetchJSON(`/api/social?${q}`),
       fetchJSON(`/api/funnel?${q}`),
       fetchJSON(`/api/traffic?${q}`),
       fetchJSON(`/api/pages?${q}`),
-      fetchJSON(`/api/summary?${q}`),
+      fetchJSON(`/api/journeys?${q}`),
     ]);
+
+    journeyData = journeys;
+    renderDataStatus(journeys.dataCompleteness);
+    renderJourneyTabs(journeys.journeys || []);
+    renderJourneyPanel(journeys);
+    renderLandingTable(journeys.landingPages);
 
     renderSocialKpis(social.kpis);
     renderChartViewsReach(social.timeSeries || []);
@@ -729,10 +978,6 @@ async function loadDashboard() {
     renderChartPagesBar(pagesData);
     renderChartPagesScatter(pagesData);
     renderPagesTable();
-
-    if (state.compareMode || state.company === 'all') {
-      renderCompareCharts(summary);
-    }
   } catch (err) {
     console.error('Dashboard load error:', err);
   }
@@ -768,11 +1013,6 @@ function initControls() {
   document.getElementById('endDate').addEventListener('change', (e) => {
     state.endDate = e.target.value;
     if (state.startDate) loadDashboard();
-  });
-
-  document.getElementById('compareMode').addEventListener('change', (e) => {
-    state.compareMode = e.target.checked;
-    loadDashboard();
   });
 
   document.querySelectorAll('.section-header').forEach(header => {

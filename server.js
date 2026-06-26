@@ -5,6 +5,14 @@ const multer = require('multer');
 const rateLimit = require('express-rate-limit');
 const { parse } = require('csv-parse/sync');
 const { db, initDb } = require('./database/db');
+const {
+  JOURNEYS,
+  FILE_TYPES,
+  FILE_TYPE_LABELS,
+  aggregatePagesForJourney,
+  buildApplicationFunnel,
+  buildGa4FunnelSteps,
+} = require('./journey-config');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -23,8 +31,8 @@ const upload = multer({ dest: UPLOADS_DIR });
 
 const uploadLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 10,
-  message: { error: 'Too many uploads. Max 10 per hour.' },
+  max: 40,
+  message: { error: 'Too many uploads. Max 40 per hour.' },
 });
 
 function detectFileType(content) {
@@ -354,12 +362,26 @@ app.post('/api/upload', uploadLimiter, upload.single('file'), (req, res) => {
       return res.status(400).json({ error: 'Invalid company. Use nyuuly or workjapan.' });
     }
 
+    const expectedType = req.body.expectedType;
+    if (expectedType && !FILE_TYPES.includes(expectedType)) {
+      return res.status(400).json({ error: 'Invalid expected file type' });
+    }
+
     const content = fs.readFileSync(req.file.path, 'utf-8');
     const fileType = detectFileType(content);
 
     if (!fileType) {
       fs.unlinkSync(req.file.path);
       return res.status(400).json({ error: 'Could not detect CSV file type' });
+    }
+
+    if (expectedType && fileType !== expectedType) {
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({
+        error: `Wrong file type. This slot expects ${FILE_TYPE_LABELS[expectedType]}, but the file looks like ${FILE_TYPE_LABELS[fileType]}.`,
+        detectedType: fileType,
+        expectedType,
+      });
     }
 
     const { added, skipped } = parseCsv(content, fileType, company);
@@ -531,6 +553,259 @@ app.get('/api/upload-history', (req, res) => {
   const lastUpdated = history.length > 0 ? history[0].uploaded_at : null;
 
   res.json({ history, lastUpdated });
+});
+
+app.get('/api/upload-status', (req, res) => {
+  const company = req.query.company || 'nyuuly';
+  if (!['nyuuly', 'workjapan'].includes(company)) {
+    return res.status(400).json({ error: 'Invalid company' });
+  }
+
+  const history = db.prepare(`
+    SELECT * FROM upload_history
+    WHERE company = ?
+    ORDER BY uploaded_at DESC
+  `).all(company);
+
+  const files = {};
+  for (const type of FILE_TYPES) {
+    const latest = history.find((h) => h.file_type === type);
+    files[type] = latest
+      ? {
+          uploaded: true,
+          filename: latest.filename,
+          uploadedAt: latest.uploaded_at,
+          rowsAdded: latest.rows_added,
+          rowsSkipped: latest.rows_skipped,
+        }
+      : { uploaded: false };
+  }
+
+  const uploadedCount = FILE_TYPES.filter((t) => files[t].uploaded).length;
+
+  res.json({
+    company,
+    files,
+    uploadedCount,
+    totalRequired: FILE_TYPES.length,
+    allComplete: uploadedCount === FILE_TYPES.length,
+    fileTypeLabels: FILE_TYPE_LABELS,
+  });
+});
+
+app.get('/api/journeys', (req, res) => {
+  const { company, start, end } = req.query;
+  const socialQ = buildSocialQuery(company, start, end);
+  const ga4Q = buildGa4DateQuery(company, start, end);
+
+  const socialKpis = db.prepare(`
+    SELECT
+      COALESCE(SUM(views), 0) as totalViews,
+      COALESCE(SUM(reach), 0) as totalReach,
+      COALESCE(SUM(likes + comments + shares + saves), 0) as totalEngagement
+    FROM social_posts ${socialQ.clause}
+  `).get(...socialQ.params);
+
+  const trafficRows = db.prepare(`
+    SELECT * FROM traffic_acquisition ${ga4Q.clause} ORDER BY sessions DESC
+  `).all(...ga4Q.params);
+
+  const trafficKpis = db.prepare(`
+    SELECT
+      COALESCE(SUM(sessions), 0) as totalSessions,
+      COALESCE(SUM(engaged_sessions), 0) as totalEngagedSessions,
+      CASE WHEN SUM(sessions) > 0
+        THEN ROUND(CAST(SUM(engaged_sessions) AS REAL) / SUM(sessions) * 100, 1)
+        ELSE 0 END as engagementRate
+    FROM traffic_acquisition ${ga4Q.clause}
+  `).get(...ga4Q.params);
+
+  const pages = db.prepare(`
+    SELECT * FROM pages_screens ${ga4Q.clause} ORDER BY views DESC
+  `).all(...ga4Q.params);
+
+  let funnelClause = 'WHERE 1=1';
+  const funnelParams = [];
+  if (company && company !== 'all') {
+    funnelClause += ' AND company = ?';
+    funnelParams.push(company);
+  }
+  if (start && end) {
+    const startCompact = start.replace(/-/g, '');
+    const endCompact = end.replace(/-/g, '');
+    funnelClause += ` AND (
+      (substr(date_range, 1, 8) <= ? AND substr(date_range, 10, 8) >= ?)
+      OR date_range IS NULL
+    )`;
+    funnelParams.push(endCompact, startCompact);
+  }
+
+  const funnelRows = db.prepare(`
+    SELECT * FROM funnel_data ${funnelClause} ORDER BY step, device_category
+  `).all(...funnelParams);
+
+  const ga4Funnel = buildGa4FunnelSteps(funnelRows);
+  const exploreAgg = aggregatePagesForJourney(pages, JOURNEYS.find((j) => j.id === 'explore-no-action'));
+  const convertAgg = aggregatePagesForJourney(pages, JOURNEYS.find((j) => j.id === 'explore-convert'));
+  const welcomeAgg = aggregatePagesForJourney(pages, JOURNEYS.find((j) => j.id === 'welcome-package'));
+  const wjJourney = JOURNEYS.find((j) => j.id === 'wj-application');
+  const applicationFunnel = buildApplicationFunnel(pages, wjJourney.applicationSteps);
+
+  const funnelEntryUsers = ga4Funnel[0]?.users || trafficKpis.totalSessions || 0;
+  const funnelEndUsers = ga4Funnel[ga4Funnel.length - 1]?.users || 0;
+  const browseOnlyUsers = Math.max(0, funnelEntryUsers - convertAgg.totalUsers - welcomeAgg.totalUsers);
+
+  const journeys = JOURNEYS.map((j) => {
+    const base = {
+      id: j.id,
+      title: j.title,
+      subtitle: j.subtitle,
+      description: j.description,
+      status: j.status,
+      sources: j.sources,
+    };
+
+    if (j.id === 'awareness') {
+      return {
+        ...base,
+        kpis: {
+          socialViews: socialKpis.totalViews,
+          socialReach: socialKpis.totalReach,
+          socialEngagement: socialKpis.totalEngagement,
+          sessions: trafficKpis.totalSessions,
+          engagedSessions: trafficKpis.totalEngagedSessions,
+          engagementRate: trafficKpis.engagementRate,
+        },
+        topChannels: trafficRows.slice(0, 8).map((r) => ({
+          channel: r.channel_group,
+          sessions: r.sessions,
+          engagedSessions: r.engaged_sessions,
+        })),
+      };
+    }
+
+    if (j.id === 'explore-no-action') {
+      const agg = exploreAgg;
+      return {
+        ...base,
+        kpis: {
+          pageViews: agg.totalViews,
+          activeUsers: agg.totalUsers,
+          estimatedBrowseOnly: browseOnlyUsers,
+          browseRate: funnelEntryUsers > 0
+            ? Math.round((browseOnlyUsers / funnelEntryUsers) * 1000) / 10
+            : 0,
+        },
+        topPages: agg.pages.slice(0, 10).map((p) => ({
+          path: p.page_path,
+          views: p.views,
+          users: p.active_users,
+          avgTime: p.avg_engagement_time,
+        })),
+        ga4Funnel: ga4Funnel.slice(0, 3),
+        entryChannels: trafficRows.slice(0, 5).map((r) => ({
+          channel: r.channel_group,
+          sessions: r.sessions,
+        })),
+      };
+    }
+
+    if (j.id === 'explore-convert') {
+      const agg = convertAgg;
+      return {
+        ...base,
+        kpis: {
+          pageViews: agg.totalViews,
+          activeUsers: agg.totalUsers,
+          keyEvents: agg.totalKeyEvents,
+          conversionRate: funnelEntryUsers > 0
+            ? Math.round((agg.totalUsers / funnelEntryUsers) * 1000) / 10
+            : 0,
+        },
+        topPages: agg.pages.slice(0, 10).map((p) => ({
+          path: p.page_path,
+          views: p.views,
+          users: p.active_users,
+          keyEvents: p.key_events,
+        })),
+        ga4Funnel,
+      };
+    }
+
+    if (j.id === 'welcome-package') {
+      const agg = welcomeAgg;
+      return {
+        ...base,
+        kpis: {
+          pageViews: agg.totalViews,
+          activeUsers: agg.totalUsers,
+          keyEvents: agg.totalKeyEvents,
+        },
+        topPages: agg.pages.slice(0, 5).map((p) => ({
+          path: p.page_path,
+          views: p.views,
+          users: p.active_users,
+        })),
+        ga4Funnel: ga4Funnel.filter((s) => s.stepLabel.toLowerCase().includes('purchase')),
+      };
+    }
+
+    if (j.id === 'wj-application') {
+      const biggestDrop = applicationFunnel.reduce(
+        (max, step, i) => (i > 0 && step.dropOffPct > (max?.dropOffPct || 0) ? step : max),
+        null
+      );
+      return {
+        ...base,
+        kpis: {
+          started: applicationFunnel[0]?.users || 0,
+          completed: applicationFunnel[applicationFunnel.length - 1]?.users || 0,
+          overallCompletion: applicationFunnel[0]?.users > 0
+            ? Math.round(
+                (applicationFunnel[applicationFunnel.length - 1].users / applicationFunnel[0].users) * 1000
+              ) / 10
+            : 0,
+          biggestDropOffStep: biggestDrop?.label || '—',
+          biggestDropOffPct: biggestDrop?.dropOffPct || 0,
+        },
+        applicationFunnel,
+        ga4Funnel,
+      };
+    }
+
+    return base;
+  });
+
+  const dataCompleteness = {
+    social: socialKpis.totalViews > 0 || socialKpis.totalReach > 0,
+    funnel: funnelRows.length > 0,
+    traffic: trafficKpis.totalSessions > 0,
+    pages: pages.length > 0,
+  };
+
+  const landingPages = pages
+    .filter((p) => ['/', '/ja', '/mobile', '/compass', '/welcome-package'].includes(p.page_path)
+      || p.page_path.match(/^\/(about|info-hub)/))
+    .sort((a, b) => b.views - a.views)
+    .slice(0, 8)
+    .map((p) => ({
+      path: p.page_path,
+      views: p.views,
+      users: p.active_users,
+      viewsPerUser: p.views_per_user,
+      nextLikely: pages
+        .filter((other) => other.page_path !== p.page_path && other.views > 0)
+        .sort((a, b) => b.views - a.views)
+        .slice(0, 3)
+        .map((o) => o.page_path),
+    }));
+
+  res.json({
+    journeys,
+    landingPages,
+    dataCompleteness,
+    completenessCount: Object.values(dataCompleteness).filter(Boolean).length,
+  });
 });
 
 app.delete('/api/data', (req, res) => {
