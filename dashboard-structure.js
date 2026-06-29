@@ -24,7 +24,7 @@ const WORKJAPAN_FUNNEL_STAGES = [
     anchor: 'stage-consideration',
     dataSources: ['Traffic CSV', 'Pages CSV', 'Funnel CSV', 'Platform registrations (manual, month-to-date)'],
     journeyIds: ['browse-jobs', 'job-detail'],
-    sectionIds: ['section-traffic', 'section-pages', 'consideration-dropoffs'],
+    sectionIds: ['section-internal-reporting', 'section-traffic', 'section-pages', 'consideration-dropoffs'],
   },
   {
     id: 'commit',

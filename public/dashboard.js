@@ -1963,12 +1963,13 @@ async function loadDashboard() {
       fetches.push(fetchJSON(`/api/platform-stats?${q}`));
       fetches.push(fetchJSON(`/api/applicant-stats?${q}`));
       fetches.push(fetchJSON(`/api/intelligence?${q}`));
+      fetches.push(fetchJSON(`/api/internal-reporting?${q}`));
     }
 
     const results = await Promise.all(fetches);
-    const [social, funnel, traffic, pages, journeys, guide, platform, applicants, intelligence] = isWorkJapan
+    const [social, funnel, traffic, pages, journeys, guide, platform, applicants, intelligence, internalReport] = isWorkJapan
       ? results
-      : [...results.slice(0, 6), null, null, null];
+      : [...results.slice(0, 6), null, null, null, null];
 
     updateFilterLabel(journeys.filter || social.filter);
     renderDashboardGuide(guide);
@@ -1977,6 +1978,9 @@ async function loadDashboard() {
     if (isWorkJapan) {
       renderFunnelPipeline(journeys, platform, applicants, social);
       renderConsiderationInsights(journeys.consideration);
+      if (typeof renderInternalReporting === 'function') {
+        renderInternalReporting(internalReport);
+      }
       renderCommitBarriers(intelligence);
       renderEmployerPanel(journeys);
       renderIntelligencePanel(intelligence);

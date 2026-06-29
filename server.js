@@ -31,6 +31,7 @@ const {
   BARRIER_TYPES,
   getDashboardGuide,
 } = require('./dashboard-structure');
+const { buildInternalReport } = require('./internal-reporting');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1049,6 +1050,38 @@ app.get('/api/applicant-stats', (req, res) => {
 app.get('/api/dashboard-guide', (req, res) => {
   const company = resolveCompany(req.query.company || 'workjapan');
   res.json(getDashboardGuide(company));
+});
+
+app.get('/api/internal-reporting', (req, res) => {
+  const { company, start, end } = req.query;
+  if (company !== 'workjapan') {
+    return res.json({
+      kpis: {},
+      topPages: [],
+      categories: [],
+      funnel: [],
+      filter: { company, start, end },
+    });
+  }
+
+  const ga4Q = buildGa4DateQuery(company, start, end);
+  const rawPages = db.prepare(`
+    SELECT * FROM pages_screens ${ga4Q.clause} ORDER BY views DESC
+  `).all(...ga4Q.params);
+  const pages = start && end ? proratePagesRows(rawPages, start, end) : rawPages;
+
+  const platformQuery = buildMonthlyStatsQuery(company, start, end);
+  const platformRows = db.prepare(`
+    SELECT * FROM platform_stats ${platformQuery.clause} ORDER BY year, month, platform
+  `).all(...platformQuery.params);
+
+  const applicantQuery = buildMonthlyStatsQuery(company, start, end);
+  const applicantRows = db.prepare(`
+    SELECT * FROM applicant_stats ${applicantQuery.clause} ORDER BY year, month
+  `).all(...applicantQuery.params);
+
+  const report = buildInternalReport(pages, platformRows, applicantRows, { company, start, end });
+  res.json(report);
 });
 
 app.get('/api/intelligence', (req, res) => {

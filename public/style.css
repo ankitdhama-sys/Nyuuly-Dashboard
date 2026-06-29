@@ -1643,6 +1643,259 @@ body.is-loading .filter-label::after {
   border-color: rgba(79, 142, 247, 0.35);
 }
 
+/* Internal reporting (Consideration) */
+.internal-reporting-section .section-body {
+  padding-top: 0.5rem;
+}
+
+.ir-period-label {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+}
+
+.ir-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.ir-kpi-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+  position: relative;
+}
+
+.ir-kpi-blue { border-top: 3px solid #4F8EF7; }
+.ir-kpi-green { border-top: 3px solid #34d399; }
+
+.ir-kpi-icon {
+  font-size: 1.25rem;
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.ir-kpi-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.ir-kpi-value {
+  font-size: 1.65rem;
+  font-weight: 700;
+  margin: 0.25rem 0;
+  color: var(--text);
+}
+
+.ir-kpi-sub {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.ir-edit-panel {
+  margin-bottom: 1.25rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  background: var(--surface-2);
+}
+
+.ir-edit-toggle {
+  background: none;
+  border: none;
+  color: var(--nyuuly);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.ir-edit-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+  margin-top: 0.75rem;
+}
+
+.ir-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 140px;
+}
+
+.ir-edit-field label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.ir-edit-field input {
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.ir-edit-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.btn-secondary {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.btn-secondary:hover {
+  background: var(--bg-hover);
+}
+
+.ir-section-block {
+  margin-bottom: 1.5rem;
+}
+
+.ir-funnel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 1rem 0;
+}
+
+.ir-funnel-step {
+  flex: 1;
+  min-width: 120px;
+}
+
+.ir-funnel-step-inner {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.85rem;
+  text-align: center;
+}
+
+.ir-funnel-step-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+}
+
+.ir-funnel-step-value {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #4F8EF7;
+}
+
+.ir-funnel-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 80px;
+  padding: 0 0.25rem;
+}
+
+.ir-funnel-arrow-line {
+  width: 100%;
+  height: 2px;
+  background: var(--border);
+  margin-bottom: 0.35rem;
+}
+
+.ir-funnel-conv {
+  text-align: center;
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+
+.ir-funnel-conv span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.65rem;
+}
+
+.ir-conv-good { color: #34d399; }
+.ir-conv-mid { color: #facc15; }
+.ir-conv-low { color: #FF6B35; }
+
+.ir-charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.ir-chart-box .chart-wrapper.ir-chart-tall {
+  height: 260px;
+}
+
+.ir-table {
+  width: 100%;
+}
+
+.ir-sort-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.ir-sort-btn:hover {
+  color: var(--nyuuly);
+}
+
+.ir-path code {
+  font-size: 0.8rem;
+}
+
+.ir-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ir-badge-blue { background: rgba(79, 142, 247, 0.2); color: #4F8EF7; }
+.ir-badge-green { background: rgba(52, 211, 153, 0.2); color: #34d399; }
+.ir-badge-purple { background: rgba(167, 139, 250, 0.2); color: #a78bfa; }
+.ir-badge-yellow { background: rgba(250, 204, 21, 0.2); color: #facc15; }
+.ir-badge-orange { background: rgba(255, 107, 53, 0.2); color: #FF6B35; }
+.ir-badge-muted { background: rgba(136, 146, 176, 0.2); color: var(--text-muted); }
+
+@media (max-width: 900px) {
+  .ir-charts-row {
+    grid-template-columns: 1fr;
+  }
+
+  .ir-funnel {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ir-funnel-arrow {
+    transform: rotate(90deg);
+    margin: 0.5rem 0;
+  }
+}
+
 @media (max-width: 900px) {
   .consideration-grid {
     grid-template-columns: 1fr;
