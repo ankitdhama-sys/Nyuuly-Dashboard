@@ -316,6 +316,195 @@ function getNextLikelyPages(landing, allPages, company) {
     .map((o) => o.page_path);
 }
 
+/** Context for why users drop off between consideration steps (from page-path funnel). */
+const CONSIDERATION_DROP_CONTEXT = {
+  '/jobs/': {
+    likelyReasons: [
+      'Users arrive on the homepage but leave without opening job listings',
+      'The path to jobs may be unclear on mobile or for first-time visitors',
+      'Traffic may be informational (blog, about) rather than job-seeking intent',
+    ],
+    whatToCheck: ['Homepage CTA to /jobs/', 'Bounce rate on homepage', 'Social post links — do they land on /jobs/ directly?'],
+  },
+  '__job_detail_aggregate__': {
+    likelyReasons: [
+      'Users scan the job list but do not open a specific posting',
+      'Listings may look too low-end for spouse / gijinkoku visa holders',
+      'Salary, location, or visa type not visible enough on listing cards',
+    ],
+    whatToCheck: ['Job category mix in listings', 'Filter usage', 'Top categories vs visa registration data'],
+  },
+  '/register': {
+    likelyReasons: [
+      'Users read job details but do not start registration',
+      'Role level mismatch — professionals leave when offers are factory/warehouse',
+      'Perceived effort before seeing apply requirements',
+    ],
+    whatToCheck: ['Engagement time on job detail pages', 'Top job categories before exit', 'In-Japan vs abroad split'],
+    stageNote: 'Last consideration step — registration friction continues in Commit stage',
+  },
+  default: {
+    likelyReasons: ['Users exit before the next step in the path', 'Check page content and CTA on the previous step'],
+    whatToCheck: ['Page views vs active users on adjacent steps'],
+  },
+};
+
+function getDropOffContext(step) {
+  if (!step) return CONSIDERATION_DROP_CONTEXT.default;
+  return CONSIDERATION_DROP_CONTEXT[step.path] || CONSIDERATION_DROP_CONTEXT.default;
+}
+
+/**
+ * Unified consideration insights: drop-offs ranked with reasons, navigation paths, journey summaries.
+ */
+function buildConsiderationInsights({
+  seekerFunnel,
+  browse,
+  jobDetail,
+  landingPages,
+  trafficRows,
+  topJobCategories,
+  ga4Funnel,
+  funnelEntryUsers,
+}) {
+  const funnel = seekerFunnel || [];
+  const funnelStart = funnel[0]?.users || funnel[0]?.views || funnelEntryUsers || 0;
+
+  const dropOffs = [];
+  for (let i = 1; i < funnel.length; i++) {
+    const prev = funnel[i - 1];
+    const curr = funnel[i];
+    const usersBefore = prev.users || prev.views || 0;
+    const usersAfter = curr.users || curr.views || 0;
+    const ctx = getDropOffContext(curr);
+    const isConsideration = i <= 3;
+
+    dropOffs.push({
+      fromLabel: prev.label,
+      fromPath: prev.path,
+      toLabel: curr.label,
+      toPath: curr.path,
+      usersBefore,
+      usersAfter,
+      usersLost: Math.max(0, usersBefore - usersAfter),
+      dropOffPct: curr.dropOffPct || 0,
+      retentionPct: curr.retentionPct || 0,
+      likelyReasons: ctx.likelyReasons,
+      whatToCheck: ctx.whatToCheck,
+      stageNote: ctx.stageNote || null,
+      stage: isConsideration ? 'consideration' : 'commit',
+    });
+  }
+
+  dropOffs.sort((a, b) => b.dropOffPct - a.dropOffPct);
+  dropOffs.forEach((d, i) => { d.rank = i + 1; });
+
+  const considerationDropOffs = dropOffs.filter((d) => d.stage === 'consideration');
+  const biggestDropOff = considerationDropOffs[0] || dropOffs[0] || null;
+
+  const navigationPaths = [];
+
+  for (const lp of landingPages || []) {
+    const nextViews = (lp.nextLikely || []).length;
+    navigationPaths.push({
+      type: 'landing',
+      path: lp.path,
+      views: lp.views,
+      users: lp.users,
+      viewsPerUser: lp.viewsPerUser,
+      nextPages: lp.nextLikely || [],
+      hint: lp.path === '/' ? 'Main entry — most users should continue to /jobs/'
+        : lp.path === '/jobs/' ? 'Listing hub — users should open job detail pages'
+        : 'Jobseeker content — often leads to /jobs/ or /register',
+    });
+  }
+
+  for (const p of (browse?.topPages || []).slice(0, 8)) {
+    if (navigationPaths.some((n) => n.path === p.path)) continue;
+    navigationPaths.push({
+      type: 'browse',
+      path: p.path,
+      views: p.views,
+      users: p.users,
+      avgTime: p.avgTime,
+      nextPages: [],
+      hint: 'Exploration page — users browsing without registering',
+    });
+  }
+
+  const considerationFunnel = funnel.slice(0, 3).map((step, i) => ({
+    ...step,
+    stepNum: i + 1,
+    pctOfStart: funnelStart > 0
+      ? Math.round(((step.users || step.views || 0) / funnelStart) * 1000) / 10
+      : 0,
+  }));
+
+  const journeyCards = [
+    {
+      id: 'browse-jobs',
+      title: 'Browse only',
+      description: 'Homepage, listings, jobseeker content — no register/apply',
+      pageViews: browse?.kpis?.pageViews,
+      activeUsers: browse?.kpis?.activeUsers,
+      estimatedBrowseOnly: browse?.kpis?.estimatedBrowseOnly,
+      browseRate: browse?.kpis?.browseRate,
+      topPages: (browse?.topPages || []).slice(0, 3),
+      entryChannels: browse?.entryChannels || [],
+    },
+    {
+      id: 'job-detail',
+      title: 'Job detail views',
+      description: 'Users who open specific job postings',
+      pageViews: jobDetail?.kpis?.pageViews,
+      activeUsers: jobDetail?.kpis?.activeUsers,
+      uniqueJobPages: jobDetail?.kpis?.uniqueJobPages,
+      topPages: (jobDetail?.topPages || []).slice(0, 3),
+      topCategories: (topJobCategories || []).slice(0, 5),
+    },
+    {
+      id: 'seeker-application',
+      title: 'Full seeker path',
+      description: 'Homepage → listings → detail → register → dashboard',
+      started: funnel[0]?.users || funnel[0]?.views,
+      completed: funnel[funnel.length - 1]?.users || funnel[funnel.length - 1]?.views,
+      biggestDropOff: biggestDropOff ? {
+        step: `${biggestDropOff.fromLabel} → ${biggestDropOff.toLabel}`,
+        pct: biggestDropOff.dropOffPct,
+      } : null,
+    },
+  ];
+
+  const ga4ConsiderationSteps = (ga4Funnel || []).slice(0, 4).map((s, i, arr) => {
+    const prev = arr[i - 1];
+    const drop = i > 0 && prev?.users > 0
+      ? Math.round((1 - s.users / prev.users) * 1000) / 10
+      : 0;
+    return { ...s, dropOffPct: drop };
+  });
+
+  return {
+    biggestDropOff,
+    dropOffs: considerationDropOffs,
+    allDropOffs: dropOffs,
+    considerationFunnel,
+    fullFunnel: funnel,
+    navigationPaths,
+    journeyCards,
+    entryChannels: (trafficRows || []).slice(0, 6).map((r) => ({
+      channel: r.channel_group,
+      sessions: r.sessions,
+      engagedSessions: r.engaged_sessions,
+      engagementRate: r.engagement_rate,
+    })),
+    topJobCategories: (topJobCategories || []).slice(0, 8),
+    browseOnlyRate: browse?.kpis?.browseRate,
+    estimatedBrowseOnly: browse?.kpis?.estimatedBrowseOnly,
+    ga4ConsiderationSteps,
+    funnelStartUsers: funnelStart,
+  };
+}
+
 module.exports = {
   NYUULY_JOURNEYS,
   WORKJAPAN_JOURNEYS,
@@ -332,4 +521,6 @@ module.exports = {
   buildGa4FunnelSteps,
   getLandingPages,
   isJobDetailPage,
+  buildConsiderationInsights,
+  CONSIDERATION_DROP_CONTEXT,
 };

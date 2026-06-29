@@ -284,48 +284,239 @@ function renderFunnelPipeline(journeys, platform, applicants, social) {
   `).join('');
 }
 
-function renderConsiderationDropoffs(journeys) {
-  const el = document.getElementById('considerationDropoffs');
+function renderConsiderationInsights(consideration) {
+  const el = document.getElementById('considerationInsights');
   if (!el || state.company !== 'workjapan') return;
 
-  const seeker = journeyById(journeys, 'seeker-application');
-  const browse = journeyById(journeys, 'browse-jobs');
-  const jobDetail = journeyById(journeys, 'job-detail');
-
-  if (!seeker?.applicationFunnel?.length) {
-    el.innerHTML = '<div class="highlight-panel empty">Upload Pages CSV to see application path drop-offs.</div>';
+  if (!consideration?.fullFunnel?.length) {
+    el.innerHTML = `
+      <div class="consideration-hub-inner">
+        <div class="highlight-panel empty">
+          Upload the <strong>Pages CSV</strong> to see navigation paths and drop-offs in consideration.
+          Traffic CSV shows where users come from in the section below.
+        </div>
+      </div>`;
     return;
   }
 
-  const drops = seeker.applicationFunnel
-    .filter((s, i) => i > 0 && s.dropOffPct > 0)
-    .sort((a, b) => b.dropOffPct - a.dropOffPct);
+  const biggest = consideration.biggestDropOff;
+  const topReason = biggest?.likelyReasons?.[0] || 'See ranked table below';
 
   el.innerHTML = `
-    <div class="highlight-panel">
-      <h4>Biggest drop-offs in the job seeker path</h4>
-      <div class="highlight-grid">
-        <div class="highlight-card abandon-red">
-          <div class="highlight-label">Worst step</div>
-          <div class="highlight-value">${seeker.kpis?.biggestDropOffStep || '—'}</div>
-          <div class="highlight-sub">${formatPct(seeker.kpis?.biggestDropOffPct)} drop-off</div>
+    <div class="consideration-hub-inner">
+      <div class="consideration-hero ${biggest?.dropOffPct > 30 ? 'consideration-hero-alert' : ''}">
+        <div class="consideration-hero-main">
+          <span class="consideration-hero-label">#1 drop-off in consideration</span>
+          <h3 class="consideration-hero-title">${biggest ? `${biggest.fromLabel} → ${biggest.toLabel}` : '—'}</h3>
+          <p class="consideration-hero-stat">
+            <strong>${formatPct(biggest?.dropOffPct)}</strong> of users lost
+            (${formatNum(biggest?.usersLost)} users)
+          </p>
+          <p class="consideration-hero-why"><strong>Likely why:</strong> ${topReason}</p>
         </div>
-        <div class="highlight-card">
-          <div class="highlight-label">Browse pages</div>
-          <div class="highlight-value">${formatNum(browse?.kpis?.pageViews)}</div>
-          <div class="highlight-sub">${formatNum(browse?.kpis?.activeUsers)} users</div>
-        </div>
-        <div class="highlight-card">
-          <div class="highlight-label">Job detail views</div>
-          <div class="highlight-value">${formatNum(jobDetail?.kpis?.pageViews)}</div>
-          <div class="highlight-sub">${formatNum(jobDetail?.kpis?.uniqueJobPages)} job pages</div>
+        <div class="consideration-hero-meta">
+          <div class="consideration-stat-pill">
+            <span class="pill-label">Browse-only (est.)</span>
+            <span class="pill-value">${formatNum(consideration.estimatedBrowseOnly)} users (${formatPct(consideration.browseOnlyRate)})</span>
+          </div>
+          <div class="consideration-stat-pill">
+            <span class="pill-label">Funnel started</span>
+            <span class="pill-value">${formatNum(consideration.funnelStartUsers)} users on homepage</span>
+          </div>
         </div>
       </div>
-      ${drops.length ? `<div class="dropoff-steps">${drops.slice(0, 4).map((d) => `
-        <span class="dropoff-chip">${d.label}: −${formatPct(d.dropOffPct)}</span>
-      `).join('')}</div>` : ''}
+
+      <div class="consideration-grid">
+        <div class="consideration-panel">
+          <h4>Consideration path — where users drop off</h4>
+          <p class="subsection-hint">Homepage → job listings → job detail. Each arrow shows users lost before the next step.</p>
+          ${renderConsiderationPathFunnel(consideration.considerationFunnel)}
+          <div class="chart-container consideration-chart">
+            <div class="chart-header"><h3>Users at each step</h3><button class="chart-download" data-chart="chartConsiderationFunnel">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartConsiderationFunnel"></canvas></div>
+          </div>
+        </div>
+
+        <div class="consideration-panel">
+          <h4>Where users come from</h4>
+          <p class="subsection-hint">Top arrival channels before they browse (Traffic CSV).</p>
+          <div class="table-wrap"><table class="consideration-table">
+            <thead><tr><th>Channel</th><th>Sessions</th><th>Engaged</th><th>Eng. rate</th></tr></thead>
+            <tbody>${(consideration.entryChannels || []).map((c) => `
+              <tr>
+                <td>${c.channel}</td>
+                <td>${formatNum(c.sessions)}</td>
+                <td>${formatNum(c.engagedSessions)}</td>
+                <td>${formatPct(c.engagementRate)}</td>
+              </tr>
+            `).join('') || '<tr><td colspan="4" class="empty-state">Upload traffic CSV</td></tr>'}
+            </tbody>
+          </table></div>
+        </div>
+      </div>
+
+      <div class="consideration-panel full-width">
+        <h4>Drop-offs ranked — what to investigate</h4>
+        <div class="table-wrap"><table class="consideration-table dropoff-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Transition</th>
+              <th>Users lost</th>
+              <th>Drop-off</th>
+              <th>Likely why</th>
+              <th>What to check</th>
+            </tr>
+          </thead>
+          <tbody>${(consideration.dropOffs || []).map((d) => `
+            <tr class="${d.rank === 1 ? 'dropoff-row-top' : ''}">
+              <td>${d.rank}</td>
+              <td>
+                <div class="dropoff-transition">${d.fromLabel} → ${d.toLabel}</div>
+                <code class="dropoff-path">${d.fromPath} → ${d.toPath}</code>
+              </td>
+              <td>${formatNum(d.usersLost)}</td>
+              <td><span class="dropoff-pct ${d.dropOffPct > 30 ? 'abandon-red-text' : ''}">${formatPct(d.dropOffPct)}</span></td>
+              <td class="dropoff-reasons"><ul>${(d.likelyReasons || []).slice(0, 2).map((r) => `<li>${r}</li>`).join('')}</ul></td>
+              <td class="dropoff-checks"><ul>${(d.whatToCheck || []).map((c) => `<li>${c}</li>`).join('')}</ul></td>
+            </tr>
+          `).join('') || '<tr><td colspan="6" class="empty-state">No drop-off data</td></tr>'}
+          </tbody>
+        </table></div>
+        ${consideration.allDropOffs?.some((d) => d.stage === 'commit') ? `
+          <p class="journey-note">Register → dashboard drop-off is tracked in <a href="#stage-commit">Commit stage</a>.</p>
+        ` : ''}
+      </div>
+
+      <div class="consideration-panel full-width">
+        <h4>Page navigation — where users go next</h4>
+        <p class="subsection-hint">Landing pages and top browse pages, with likely next steps from Pages CSV.</p>
+        <div class="table-wrap"><table class="consideration-table">
+          <thead><tr><th>Page</th><th>Views</th><th>Users</th><th>Likely next pages</th><th>Notes</th></tr></thead>
+          <tbody>${(consideration.navigationPaths || []).map((n) => `
+            <tr>
+              <td><code>${n.path}</code></td>
+              <td>${formatNum(n.views)}</td>
+              <td>${formatNum(n.users)}</td>
+              <td class="next-pages">${(n.nextPages || []).map((p) => `<code>${p}</code>`).join(' → ') || '—'}</td>
+              <td class="nav-hint">${n.hint || ''}</td>
+            </tr>
+          `).join('') || '<tr><td colspan="5" class="empty-state">No navigation data</td></tr>'}
+          </tbody>
+        </table></div>
+      </div>
+
+      <div class="consideration-panel full-width">
+        <h4>Three customer journeys in consideration</h4>
+        <div class="journey-cards-row">${(consideration.journeyCards || []).map((card) => `
+          <div class="journey-mini-card">
+            <h5>${card.title}</h5>
+            <p class="journey-mini-desc">${card.description}</p>
+            ${card.id === 'browse-jobs' ? `
+              <div class="journey-mini-kpis">
+                <span>${formatNum(card.pageViews)} views</span>
+                <span>${formatNum(card.estimatedBrowseOnly)} browse-only</span>
+              </div>
+              ${card.topPages?.length ? `<div class="journey-mini-pages">Top: ${card.topPages.map((p) => `<code>${p.path}</code>`).join(', ')}</div>` : ''}
+            ` : ''}
+            ${card.id === 'job-detail' ? `
+              <div class="journey-mini-kpis">
+                <span>${formatNum(card.pageViews)} job views</span>
+                <span>${formatNum(card.uniqueJobPages)} job pages</span>
+              </div>
+              ${card.topCategories?.length ? `<div class="journey-mini-pages">Top categories: ${card.topCategories.map((c) => c.category).join(', ')}</div>` : ''}
+            ` : ''}
+            ${card.id === 'seeker-application' ? `
+              <div class="journey-mini-kpis">
+                <span>${formatNum(card.started)} started</span>
+                <span>${formatNum(card.completed)} reached dashboard</span>
+              </div>
+              ${card.biggestDropOff ? `<div class="journey-mini-drop">Worst: ${card.biggestDropOff.step} (−${formatPct(card.biggestDropOff.pct)})</div>` : ''}
+            ` : ''}
+          </div>
+        `).join('')}</div>
+      </div>
+
+      ${consideration.topJobCategories?.length ? `
+        <div class="consideration-panel full-width">
+          <h4>Most viewed job categories</h4>
+          <p class="subsection-hint">If certain visa types leave more often, compare categories here with visa data in Customer Intelligence.</p>
+          <div class="table-wrap"><table class="consideration-table">
+            <thead><tr><th>Category</th><th>Listings</th><th>Views</th><th>Users</th></tr></thead>
+            <tbody>${consideration.topJobCategories.map((c) => `
+              <tr><td>${c.category}</td><td>${formatNum(c.jobs)}</td><td>${formatNum(c.views)}</td><td>${formatNum(c.users)}</td></tr>
+            `).join('')}</tbody>
+          </table></div>
+        </div>
+      ` : ''}
     </div>
   `;
+
+  renderChartConsiderationFunnel(consideration.considerationFunnel);
+
+  el.querySelectorAll('.chart-download').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      downloadChart(btn.dataset.chart);
+    });
+  });
+}
+
+function renderConsiderationPathFunnel(steps) {
+  if (!steps?.length) return '';
+
+  return `<div class="path-funnel">${steps.map((step, i) => {
+    const next = steps[i + 1];
+    const arrow = next ? (() => {
+      const dropPct = next.dropOffPct || 0;
+      const usersLost = Math.max(0, (step.users || step.views || 0) - (next.users || next.views || 0));
+      const severity = dropPct > 30 ? 'path-arrow-red' : dropPct > 15 ? 'path-arrow-yellow' : 'path-arrow-green';
+      return `
+        <div class="path-arrow ${severity}">
+          <span class="path-arrow-label">−${formatPct(dropPct)}</span>
+          <span class="path-arrow-sub">${formatNum(usersLost)} users lost</span>
+        </div>`;
+    })() : '';
+
+    return `
+      <div class="path-step">
+        <div class="path-step-box">
+          <span class="path-step-num">${step.stepNum || i + 1}</span>
+          <div class="path-step-label">${step.label}</div>
+          <code class="path-step-path">${step.path}</code>
+          <div class="path-step-users">${formatNum(step.users || step.views)} users</div>
+          <div class="path-step-pct">${formatPct(step.pctOfStart)} of homepage</div>
+        </div>
+      </div>
+      ${arrow}
+    `;
+  }).join('')}</div>`;
+}
+
+function renderChartConsiderationFunnel(steps) {
+  destroyChart('chartConsiderationFunnel');
+  const ctx = document.getElementById('chartConsiderationFunnel');
+  if (!ctx || !steps?.length) return;
+
+  charts.chartConsiderationFunnel = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: steps.map((s) => s.label),
+      datasets: [{
+        label: 'Users',
+        data: steps.map((s) => s.users || s.views || 0),
+        backgroundColor: [COLORS.workjapan, '#ff9f6b', '#ffb088'],
+      }],
+    },
+    options: {
+      ...chartDefaults(),
+      indexAxis: 'y',
+    },
+  });
+}
+
+function renderConsiderationDropoffs(journeys) {
+  renderConsiderationInsights(journeys?.consideration);
 }
 
 function renderCommitBarriers(intelligence) {
@@ -1680,7 +1871,7 @@ async function loadDashboard() {
 
     if (isWorkJapan) {
       renderFunnelPipeline(journeys, platform, applicants, social);
-      renderConsiderationDropoffs(journeys);
+      renderConsiderationInsights(journeys.consideration);
       renderCommitBarriers(intelligence);
       renderEmployerPanel(journeys);
       renderIntelligencePanel(intelligence);

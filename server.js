@@ -24,6 +24,7 @@ const {
   buildGa4FunnelSteps,
   getLandingPages,
   isJobDetailPage,
+  buildConsiderationInsights,
 } = require('./journey-config');
 const {
   VISA_TYPES,
@@ -1618,9 +1619,28 @@ app.get('/api/journeys', (req, res) => {
     pages: pages.length > 0,
   };
 
+  const landingPages = getLandingPages(pages, journeyCompany);
+  const seekerJourney = journeys.find((j) => j.id === 'seeker-application');
+  const browseJourney = journeys.find((j) => j.id === 'browse-jobs');
+  const jobDetailJourney = journeys.find((j) => j.id === 'job-detail');
+
+  const consideration = journeyCompany === 'workjapan'
+    ? buildConsiderationInsights({
+        seekerFunnel: seekerJourney?.applicationFunnel,
+        browse: browseJourney,
+        jobDetail: jobDetailJourney,
+        landingPages,
+        trafficRows,
+        topJobCategories,
+        ga4Funnel,
+        funnelEntryUsers,
+      })
+    : null;
+
   res.json({
     journeys,
-    landingPages: getLandingPages(pages, journeyCompany),
+    landingPages,
+    consideration,
     dataCompleteness,
     completenessCount: Object.values(dataCompleteness).filter(Boolean).length,
     company: journeyCompany,
