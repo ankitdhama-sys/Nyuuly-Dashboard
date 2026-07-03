@@ -67,6 +67,24 @@ function initDb() {
       UNIQUE(company, start_date, end_date, channel_group)
     );
 
+    CREATE TABLE IF NOT EXISTS user_acquisition (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      company TEXT NOT NULL,
+      start_date TEXT,
+      end_date TEXT,
+      channel_group TEXT NOT NULL,
+      total_users INTEGER DEFAULT 0,
+      new_users INTEGER DEFAULT 0,
+      returning_users INTEGER DEFAULT 0,
+      avg_engagement_time REAL DEFAULT 0,
+      engaged_sessions_per_user REAL DEFAULT 0,
+      event_count INTEGER DEFAULT 0,
+      key_events INTEGER DEFAULT 0,
+      user_key_event_rate REAL DEFAULT 0,
+      upload_date TEXT DEFAULT (date('now')),
+      UNIQUE(company, start_date, end_date, channel_group)
+    );
+
     CREATE TABLE IF NOT EXISTS pages_screens (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       company TEXT NOT NULL,

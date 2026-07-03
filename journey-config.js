@@ -4,19 +4,19 @@ const NYUULY_JOURNEYS = [
   {
     id: 'awareness',
     title: 'Awareness & Arrival',
-    subtitle: 'Social + Traffic',
-    description: 'How users discover NyuuLy and which channels bring them to the site.',
+    subtitle: 'Social',
+    description: 'How users discover NyuuLy through social content.',
     status: 'live',
-    sources: ['social', 'traffic'],
+    sources: ['social'],
     pagePatterns: [],
   },
   {
     id: 'explore-no-action',
     title: 'Explore — Browse Only',
-    subtitle: 'Pages + Funnel + Traffic',
+    subtitle: 'Pages + Funnel + Users',
     description: 'Users browse NyuuLy pages (compass, info, mobile) without converting.',
     status: 'live',
-    sources: ['pages', 'funnel', 'traffic'],
+    sources: ['pages', 'funnel', 'users'],
     pagePatterns: ['/', '/about', '/compass', '/info-hub', '/ja', '/info', '/mobile'],
     excludePatterns: ['/apply', '/welcome-package', '/mobile/sim/apply'],
   },
@@ -26,7 +26,7 @@ const NYUULY_JOURNEYS = [
     subtitle: 'Pages + Funnel',
     description: 'Users browse then subscribe to NyuuLy or start SIM / mobile paths.',
     status: 'live',
-    sources: ['pages', 'funnel', 'traffic'],
+    sources: ['pages', 'funnel', 'users'],
     pagePatterns: ['/apply', '/mobile/sim/apply', '/compass/student', '/mobile/sim/plans', '/signup'],
     excludePatterns: [],
   },
@@ -62,29 +62,29 @@ const NYUULY_JOURNEYS = [
 const WORKJAPAN_JOURNEYS = [
   {
     id: 'awareness',
-    title: 'Instagram → Website Arrival',
-    subtitle: 'Social + Traffic',
-    description: 'Job posts on @jobsforforeigners drive users to workjapan.jp via search, direct, and social channels.',
+    title: 'Instagram → Social Discovery',
+    subtitle: 'Social',
+    description: 'Job posts on @jobsforforeigners — views and reach across Instagram and other social platforms.',
     status: 'live',
-    sources: ['social', 'traffic'],
+    sources: ['social'],
     pagePatterns: [],
   },
   {
     id: 'browse-jobs',
     title: 'Browse Jobs — No Application',
-    subtitle: 'Pages + Funnel + Traffic',
+    subtitle: 'Pages + Funnel + Users',
     description: 'Users explore homepage, job listings, and jobseeker content without registering or applying.',
     status: 'live',
-    sources: ['pages', 'funnel', 'traffic'],
+    sources: ['pages', 'funnel', 'users'],
     matcher: 'wj-browse',
   },
   {
     id: 'job-detail',
     title: 'Job Detail Views',
-    subtitle: 'Pages + Traffic',
+    subtitle: 'Pages + Users',
     description: 'Users view specific job postings (factory, warehouse, taxi, hotel, etc.) — top of the apply funnel.',
     status: 'live',
-    sources: ['pages', 'traffic'],
+    sources: ['pages', 'users'],
     matcher: 'wj-job-detail',
   },
   {
@@ -100,10 +100,10 @@ const WORKJAPAN_JOURNEYS = [
   {
     id: 'employer',
     title: 'Employer Journey',
-    subtitle: 'Pages + Traffic',
+    subtitle: 'Pages + Users',
     description: 'Employers exploring hire-foreigner content, registration, and job dashboard.',
     status: 'live',
-    sources: ['pages', 'traffic'],
+    sources: ['pages', 'users'],
     pagePatterns: ['/employer', '/dashboard/jobs', '/dashboard/billing'],
     excludePatterns: [],
   },
@@ -124,12 +124,12 @@ const WORKJAPAN_JOURNEYS = [
   },
 ];
 
-const FILE_TYPES = ['social', 'funnel', 'traffic', 'pages'];
+const FILE_TYPES = ['social', 'funnel', 'users', 'pages'];
 
 const FILE_TYPE_LABELS = {
   social: 'Social Media Posts',
   funnel: 'Funnel Data (GA4)',
-  traffic: 'Traffic Acquisition (GA4)',
+  users: 'User Acquisition (GA4)',
   pages: 'Pages & Screens (GA4)',
 };
 
@@ -576,9 +576,9 @@ function buildConsiderationInsights({
     journeyCards,
     entryChannels: (trafficRows || []).slice(0, 6).map((r) => ({
       channel: r.channel_group,
-      sessions: r.sessions,
-      engagedSessions: r.engaged_sessions,
-      engagementRate: r.engagement_rate,
+      totalUsers: r.total_users,
+      newUsers: r.new_users,
+      avgEngagementTime: r.avg_engagement_time,
     })),
     topJobCategories: (topJobCategories || []).slice(0, 8),
     browseOnlyRate: browse?.kpis?.browseRate,

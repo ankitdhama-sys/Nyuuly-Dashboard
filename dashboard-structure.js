@@ -9,9 +9,9 @@ const WORKJAPAN_FUNNEL_STAGES = [
     number: 1,
     label: 'Awareness',
     question: 'How do job seekers discover WORK JAPAN?',
-    summary: 'Social content performance (Instagram, YouTube, Facebook, etc.) and which channels drive users to the website.',
+    summary: 'Social content performance (Instagram, YouTube, Facebook, etc.).',
     anchor: 'stage-awareness',
-    dataSources: ['Social CSV (Meta / IG exports)', 'Traffic CSV (GA4)'],
+    dataSources: ['Social CSV (Meta / IG exports)'],
     journeyIds: ['awareness'],
     sectionIds: ['section-social'],
   },
@@ -20,11 +20,11 @@ const WORKJAPAN_FUNNEL_STAGES = [
     number: 2,
     label: 'Consideration',
     question: 'Where do users come from, what pages do they view, and where do they drop off?',
-    summary: 'Traffic sources, page navigation, job browsing, and the biggest drop-offs before registration.',
+    summary: 'User acquisition channels, page navigation, job browsing, and the biggest drop-offs before registration.',
     anchor: 'stage-consideration',
-    dataSources: ['Traffic CSV', 'Pages CSV', 'Funnel CSV', 'Platform registrations (manual, month-to-date)'],
+    dataSources: ['User Acquisition CSV (GA4)', 'Pages CSV', 'Funnel CSV', 'Platform registrations (manual, month-to-date)'],
     journeyIds: ['browse-jobs', 'job-detail'],
-    sectionIds: ['section-internal-reporting', 'section-traffic', 'section-pages', 'consideration-dropoffs'],
+    sectionIds: ['section-internal-reporting', 'section-users', 'section-pages', 'consideration-dropoffs'],
   },
   {
     id: 'commit',
@@ -99,11 +99,11 @@ const WORKJAPAN_GUIDE = {
     },
     {
       title: 'Weekly CSV data',
-      body: 'Four weekly exports power web analytics: Social, Traffic, Pages, and Funnel. Manual monthly entry covers registrations, applications, and intelligence metrics.',
+      body: 'Four weekly exports power web analytics: Social, User Acquisition, Pages, and Funnel. Manual monthly entry covers registrations, applications, and intelligence metrics.',
     },
   ],
   dataLegend: [
-    { label: 'Weekly CSV', desc: 'Uploaded each week — social, traffic, pages, funnel' },
+    { label: 'Weekly CSV', desc: 'Uploaded each week — social, user acquisition, pages, funnel' },
     { label: 'Manual monthly', desc: 'Platform registrations, applications, customer intelligence' },
     { label: 'Computed', desc: 'Drop-offs and funnel steps calculated from page paths' },
   ],
@@ -114,10 +114,10 @@ const NYUULY_GUIDE = {
   intro: 'NyuuLy analytics are organized by **customer journey tabs** and four weekly CSV sections. Use the journey tabs to explore awareness, browsing, and conversion paths.',
   pillars: [
     { title: 'Customer journeys', body: 'Tab-based deep dives built from your 4 weekly CSV exports.' },
-    { title: 'Weekly CSV sections', body: 'Social, Traffic, Pages, and Funnel — raw data behind the journeys.' },
+    { title: 'Weekly CSV sections', body: 'Social, User Acquisition, Pages, and Funnel — raw data behind the journeys.' },
   ],
   dataLegend: [
-    { label: 'Weekly CSV', desc: 'Social, traffic, pages, funnel exports' },
+    { label: 'Weekly CSV', desc: 'Social, user acquisition, pages, funnel exports' },
   ],
 };
 

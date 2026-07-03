@@ -30,7 +30,7 @@ let pagesData = [];
 let pagesPage = 1;
 let socialSort = { col: 'views', dir: 'desc' };
 let funnelSort = { col: 'step', dir: 'asc' };
-let trafficSort = { col: 'sessions', dir: 'desc' };
+let usersSort = { col: 'total_users', dir: 'desc' };
 let pagesSort = { col: 'views', dir: 'desc' };
 
 function formatNum(n) {
@@ -239,7 +239,7 @@ function renderFunnelPipeline(journeys, platform, applicants, social) {
       num: 1,
       label: 'Awareness',
       value: formatNum(awareness?.kpis?.socialViews),
-      detail: `${formatNum(awareness?.kpis?.socialReach)} reach · ${formatNum(awareness?.kpis?.sessions)} sessions`,
+      detail: `${formatNum(awareness?.kpis?.socialReach)} reach`,
     },
     {
       anchor: 'stage-consideration',
@@ -444,17 +444,17 @@ function renderConsiderationInsights(consideration) {
 
         <div class="consideration-panel">
           <h4>Where users come from</h4>
-          <p class="subsection-hint">Top arrival channels before they browse (Traffic CSV).</p>
+          <p class="subsection-hint">Top arrival channels before they browse (User Acquisition CSV).</p>
           <div class="table-wrap"><table class="consideration-table">
-            <thead><tr><th>Channel</th><th>Sessions</th><th>Engaged</th><th>Eng. rate</th></tr></thead>
+            <thead><tr><th>Channel</th><th>Total Users</th><th>New Users</th><th>Avg engagement</th></tr></thead>
             <tbody>${(consideration.entryChannels || []).map((c) => `
               <tr>
                 <td>${c.channel}</td>
-                <td>${formatNum(c.sessions)}</td>
-                <td>${formatNum(c.engagedSessions)}</td>
-                <td>${formatPct(c.engagementRate)}</td>
+                <td>${formatNum(c.totalUsers)}</td>
+                <td>${formatNum(c.newUsers)}</td>
+                <td>${formatNum(c.avgEngagementTime)}s</td>
               </tr>
-            `).join('') || '<tr><td colspan="4" class="empty-state">Upload traffic CSV</td></tr>'}
+            `).join('') || '<tr><td colspan="4" class="empty-state">Upload User Acquisition CSV</td></tr>'}
             </tbody>
           </table></div>
         </div>
@@ -1074,7 +1074,7 @@ function renderDataStatus(completeness) {
   const labels = {
     social: 'Social',
     funnel: 'Funnel',
-    traffic: 'Traffic',
+    users: 'Users',
     pages: 'Pages',
   };
   el.innerHTML = Object.entries(labels).map(([key, label]) => {
@@ -1108,7 +1108,7 @@ function renderJourneyPanel(data) {
   if (intro && data?.companyLabel) {
     intro.textContent = data.company === 'workjapan'
       ? 'Optional detail view — the 5-stage funnel above is the primary navigation. Use these tabs for step-by-step exploration of specific paths.'
-      : `${data.companyLabel} customer journeys — built from your 4 weekly CSVs (social, traffic, pages, funnel).`;
+      : `${data.companyLabel} customer journeys — built from your 4 weekly CSVs (social, user acquisition, pages, funnel).`;
   }
 
   if (!data || !data.journeys?.length) {
@@ -1136,22 +1136,7 @@ function renderJourneyPanel(data) {
         <div class="kpi-card"><div class="label">${isWj ? 'Instagram Post Views' : 'Social Views'}</div><div class="value">${formatNum(journey.kpis.socialViews)}</div></div>
         <div class="kpi-card"><div class="label">${isWj ? 'Instagram Reach' : 'Social Reach'}</div><div class="value">${formatNum(journey.kpis.socialReach)}</div></div>
         <div class="kpi-card"><div class="label">${isWj ? 'Job Posts' : 'Social Engagement'}</div><div class="value">${formatNum(isWj ? journey.kpis.postCount : journey.kpis.socialEngagement)}</div></div>
-        <div class="kpi-card"><div class="label">Website Sessions</div><div class="value">${formatNum(journey.kpis.sessions)}</div></div>
-        <div class="kpi-card"><div class="label">Engagement Rate</div><div class="value">${formatPct(journey.kpis.engagementRate)}</div></div>
       </div>
-      <h4 class="subsection-title">Top Arrival Channels</h4>
-      <div class="table-wrap"><table>
-        <thead><tr><th>Channel</th><th>Sessions</th><th>Engaged Sessions</th>${isWj ? '<th>Eng. Rate</th>' : ''}</tr></thead>
-        <tbody>${(journey.topChannels || []).map((c) => `
-          <tr>
-            <td>${c.channel}</td>
-            <td>${formatNum(c.sessions)}</td>
-            <td>${formatNum(c.engagedSessions)}</td>
-            ${isWj ? `<td>${formatPct(c.engagementRate)}</td>` : ''}
-          </tr>
-        `).join('') || '<tr><td colspan="4" class="empty-state">No traffic data</td></tr>'}
-        </tbody>
-      </table></div>
     `;
   } else if (journey.id === 'browse-jobs' || journey.id === 'explore-no-action') {
     html += `
@@ -1166,8 +1151,8 @@ function renderJourneyPanel(data) {
       ${renderPageListTable(journey.topPages)}
       <h4 class="subsection-title">How They Arrived</h4>
       <div class="channel-chips">${(journey.entryChannels || []).map((c) =>
-        `<span class="channel-chip">${c.channel}: ${formatNum(c.sessions)}</span>`
-      ).join('') || '<span class="channel-chip muted">Upload traffic CSV</span>'}</div>
+        `<span class="channel-chip">${c.channel}: ${formatNum(c.totalUsers)} users</span>`
+      ).join('') || '<span class="channel-chip muted">Upload User Acquisition CSV</span>'}</div>
     `;
   } else if (journey.id === 'job-detail') {
     html += `
@@ -1388,16 +1373,16 @@ function renderSocialKpis(kpis) {
   `;
 }
 
-function renderTrafficKpis(kpis) {
-  const el = document.getElementById('trafficKpis');
-  if (!kpis || !kpis.totalSessions) {
-    el.innerHTML = '<div class="empty-state">No traffic data for this date range — <a href="/upload">upload a CSV</a></div>';
+function renderUsersKpis(kpis) {
+  const el = document.getElementById('usersKpis');
+  if (!kpis || !kpis.totalUsers) {
+    el.innerHTML = '<div class="empty-state">No user acquisition data for this date range — <a href="/upload">upload a CSV</a></div>';
     return;
   }
   el.innerHTML = `
-    <div class="kpi-card"><div class="label">Total Sessions</div><div class="value">${formatNum(kpis.totalSessions)}</div></div>
-    <div class="kpi-card"><div class="label">Engaged Sessions</div><div class="value">${formatNum(kpis.totalEngagedSessions)}</div></div>
-    <div class="kpi-card"><div class="label">Engagement Rate</div><div class="value">${formatPct(kpis.engagementRate)}</div></div>
+    <div class="kpi-card"><div class="label">Total Users</div><div class="value">${formatNum(kpis.totalUsers)}</div></div>
+    <div class="kpi-card"><div class="label">New Users</div><div class="value">${formatNum(kpis.newUsers)}</div></div>
+    <div class="kpi-card"><div class="label">Returning Users</div><div class="value">${formatNum(kpis.returningUsers)}</div></div>
   `;
 }
 
@@ -1555,18 +1540,18 @@ function renderChartFunnelDevice(step1Devices) {
   });
 }
 
-function renderChartTrafficDonut(rows) {
-  destroyChart('chartTrafficDonut');
-  const ctx = document.getElementById('chartTrafficDonut');
+function renderChartUsersDonut(rows) {
+  destroyChart('chartUsersDonut');
+  const ctx = document.getElementById('chartUsersDonut');
   if (!rows.length) return;
 
   const colors = [COLORS.nyuuly, COLORS.workjapan, '#a78bfa', '#34d399', '#facc15', '#f472b6', '#60a5fa'];
 
-  charts.chartTrafficDonut = new Chart(ctx, {
+  charts.chartUsersDonut = new Chart(ctx, {
     type: 'doughnut',
     data: {
       labels: rows.map(r => r.channel_group),
-      datasets: [{ data: rows.map(r => r.sessions), backgroundColor: colors }],
+      datasets: [{ data: rows.map(r => r.total_users), backgroundColor: colors }],
     },
     options: {
       responsive: true,
@@ -1576,28 +1561,28 @@ function renderChartTrafficDonut(rows) {
   });
 }
 
-function renderChartTrafficBar(rows) {
-  destroyChart('chartTrafficBar');
-  const ctx = document.getElementById('chartTrafficBar');
-  const sorted = [...rows].sort((a, b) => b.engaged_sessions - a.engaged_sessions);
+function renderChartUsersBar(rows) {
+  destroyChart('chartUsersBar');
+  const ctx = document.getElementById('chartUsersBar');
+  const sorted = [...rows].sort((a, b) => b.new_users - a.new_users);
   if (!sorted.length) return;
 
-  charts.chartTrafficBar = new Chart(ctx, {
+  charts.chartUsersBar = new Chart(ctx, {
     type: 'bar',
     data: {
       labels: sorted.map(r => r.channel_group),
-      datasets: [{ label: 'Engaged Sessions', data: sorted.map(r => r.engaged_sessions), backgroundColor: COLORS.nyuuly }],
+      datasets: [{ label: 'New Users', data: sorted.map(r => r.new_users), backgroundColor: COLORS.nyuuly }],
     },
     options: { ...chartDefaults(), indexAxis: 'y' },
   });
 }
 
-function renderChartTrafficEngagement(rows) {
-  destroyChart('chartTrafficEngagement');
-  const ctx = document.getElementById('chartTrafficEngagement');
+function renderChartUsersEngagement(rows) {
+  destroyChart('chartUsersEngagement');
+  const ctx = document.getElementById('chartUsersEngagement');
   if (!rows.length) return;
 
-  charts.chartTrafficEngagement = new Chart(ctx, {
+  charts.chartUsersEngagement = new Chart(ctx, {
     type: 'bar',
     data: {
       labels: rows.map(r => r.channel_group),
@@ -1663,23 +1648,23 @@ function renderCompareCharts(summary) {
   destroyChart('chartCompareBar');
   destroyChart('chartCompareRadar');
 
-  const nyuulyTraffic = summary.traffic.find(t => t.company === 'nyuuly') || {};
-  const wjTraffic = summary.traffic.find(t => t.company === 'workjapan') || {};
+  const nyuulyUsers = summary.users.find(t => t.company === 'nyuuly') || {};
+  const wjUsers = summary.users.find(t => t.company === 'workjapan') || {};
 
   const ctxBar = document.getElementById('chartCompareBar');
   charts.chartCompareBar = new Chart(ctxBar, {
     type: 'bar',
     data: {
-      labels: ['Sessions', 'Engaged Sessions', 'Avg Engagement Time'],
+      labels: ['Total Users', 'New Users', 'Avg Engagement Time'],
       datasets: [
         {
           label: 'Nyuuly',
-          data: [nyuulyTraffic.sessions || 0, nyuulyTraffic.engagedSessions || 0, nyuulyTraffic.avgEngagementTime || 0],
+          data: [nyuulyUsers.totalUsers || 0, nyuulyUsers.newUsers || 0, nyuulyUsers.avgEngagementTime || 0],
           backgroundColor: COLORS.nyuuly,
         },
         {
           label: 'WORK JAPAN',
-          data: [wjTraffic.sessions || 0, wjTraffic.engagedSessions || 0, wjTraffic.avgEngagementTime || 0],
+          data: [wjUsers.totalUsers || 0, wjUsers.newUsers || 0, wjUsers.avgEngagementTime || 0],
           backgroundColor: COLORS.workjapan,
         },
       ],
@@ -1694,12 +1679,12 @@ function renderCompareCharts(summary) {
   const nyuulyPage = summary.topPages.find(p => p.company === 'nyuuly') || {};
   const wjPage = summary.topPages.find(p => p.company === 'workjapan') || {};
 
-  const metrics = ['Social Views', 'Social Reach', 'Engagement Rate', 'Sessions', 'Funnel Completion', 'Top Page Views'];
+  const metrics = ['Social Views', 'Social Reach', 'Engagement Rate', 'Total Users', 'Funnel Completion', 'Top Page Views'];
   const nyuulyVals = [
     nyuulySocial.views || 0,
     nyuulySocial.reach || 0,
     nyuulySocial.reach ? (nyuulySocial.engagement / nyuulySocial.reach) * 100 : 0,
-    nyuulyTraffic.sessions || 0,
+    nyuulyUsers.totalUsers || 0,
     (nyuulyFunnel.find(f => f.step && f.step.includes('Purchase'))?.completion_rate || 0) * 100,
     nyuulyPage.views || 0,
   ];
@@ -1707,7 +1692,7 @@ function renderCompareCharts(summary) {
     wjSocial.views || 0,
     wjSocial.reach || 0,
     wjSocial.reach ? (wjSocial.engagement / wjSocial.reach) * 100 : 0,
-    wjTraffic.sessions || 0,
+    wjUsers.totalUsers || 0,
     (wjFunnel.find(f => f.step && f.step.includes('Purchase'))?.completion_rate || 0) * 100,
     wjPage.views || 0,
   ];
@@ -1734,10 +1719,10 @@ function renderCompareCharts(summary) {
     },
   });
 
-  renderCompareTable(nyuulySocial, wjSocial, nyuulyTraffic, wjTraffic, nyuulyPage, wjPage);
+  renderCompareTable(nyuulySocial, wjSocial, nyuulyUsers, wjUsers, nyuulyPage, wjPage);
 }
 
-function renderCompareTable(nSocial, wSocial, nTraffic, wTraffic, nPage, wPage) {
+function renderCompareTable(nSocial, wSocial, nUsers, wUsers, nPage, wPage) {
   const table = document.getElementById('compareTable');
   table.querySelector('thead').innerHTML = `
     <tr><th>Metric</th><th>Nyuuly</th><th>WORK JAPAN</th></tr>
@@ -1746,9 +1731,9 @@ function renderCompareTable(nSocial, wSocial, nTraffic, wTraffic, nPage, wPage) 
     <tr><td>Social Views</td><td>${formatNum(nSocial.views)}</td><td>${formatNum(wSocial.views)}</td></tr>
     <tr><td>Social Reach</td><td>${formatNum(nSocial.reach)}</td><td>${formatNum(wSocial.reach)}</td></tr>
     <tr><td>Social Engagement</td><td>${formatNum(nSocial.engagement)}</td><td>${formatNum(wSocial.engagement)}</td></tr>
-    <tr><td>Sessions</td><td>${formatNum(nTraffic.sessions)}</td><td>${formatNum(wTraffic.sessions)}</td></tr>
-    <tr><td>Engaged Sessions</td><td>${formatNum(nTraffic.engagedSessions)}</td><td>${formatNum(wTraffic.engagedSessions)}</td></tr>
-    <tr><td>Engagement Rate</td><td>${formatPct(nTraffic.engagementRate)}</td><td>${formatPct(wTraffic.engagementRate)}</td></tr>
+    <tr><td>Total Users</td><td>${formatNum(nUsers.totalUsers)}</td><td>${formatNum(wUsers.totalUsers)}</td></tr>
+    <tr><td>New Users</td><td>${formatNum(nUsers.newUsers)}</td><td>${formatNum(wUsers.newUsers)}</td></tr>
+    <tr><td>Returning Users</td><td>${formatNum(nUsers.returningUsers)}</td><td>${formatNum(wUsers.returningUsers)}</td></tr>
     <tr><td>Top Page Views</td><td>${formatNum(nPage.views)} (${nPage.page_path || '—'})</td><td>${formatNum(wPage.views)} (${wPage.page_path || '—'})</td></tr>
   `;
 }
@@ -1860,43 +1845,43 @@ function renderFunnelTable() {
   ], data, funnelSort, () => renderFunnelTable());
 }
 
-function renderTrafficTable(rows) {
+function renderUsersTable(rows) {
   if (!rows.length) {
-    document.getElementById('trafficTable').querySelector('tbody').innerHTML =
+    document.getElementById('usersTable').querySelector('tbody').innerHTML =
       '<tr><td colspan="8" class="empty-state">No data for this date range — <a href="/upload">upload a CSV first</a></td></tr>';
     return;
   }
 
-  const maxSessions = Math.max(...rows.map(r => r.sessions));
-  const maxEngaged = Math.max(...rows.map(r => r.engaged_sessions));
-  const maxRate = Math.max(...rows.map(r => r.engagement_rate));
+  const maxUsers = Math.max(...rows.map(r => r.total_users));
+  const maxNew = Math.max(...rows.map(r => r.new_users));
+  const maxReturning = Math.max(...rows.map(r => r.returning_users));
   const maxTime = Math.max(...rows.map(r => r.avg_engagement_time));
 
-  const sorted = sortData(rows, trafficSort);
+  const sorted = sortData(rows, usersSort);
   const data = sorted.map(r => ({
     ...r,
     _html: `<tr>
       <td>${r.channel_group}</td>
-      <td class="${r.sessions === maxSessions ? 'top-metric' : ''}">${formatNum(r.sessions)}</td>
-      <td class="${r.engaged_sessions === maxEngaged ? 'top-metric' : ''}">${formatNum(r.engaged_sessions)}</td>
-      <td class="${r.engagement_rate === maxRate ? 'top-metric' : ''}">${formatPct(r.engagement_rate)}</td>
+      <td class="${r.total_users === maxUsers ? 'top-metric' : ''}">${formatNum(r.total_users)}</td>
+      <td class="${r.new_users === maxNew ? 'top-metric' : ''}">${formatNum(r.new_users)}</td>
+      <td class="${r.returning_users === maxReturning ? 'top-metric' : ''}">${formatNum(r.returning_users)}</td>
       <td class="${r.avg_engagement_time === maxTime ? 'top-metric' : ''}">${formatNum(r.avg_engagement_time)}s</td>
-      <td>${formatNum(r.events_per_session)}</td>
+      <td>${formatNum(r.engaged_sessions_per_user)}</td>
       <td>${formatNum(r.event_count)}</td>
       <td>${formatNum(r.key_events)}</td>
     </tr>`,
   }));
 
-  renderSortableTable('trafficTable', [
+  renderSortableTable('usersTable', [
     { key: 'channel_group', label: 'Channel' },
-    { key: 'sessions', label: 'Sessions' },
-    { key: 'engaged_sessions', label: 'Engaged Sessions' },
-    { key: 'engagement_rate', label: 'Engagement Rate' },
+    { key: 'total_users', label: 'Total Users' },
+    { key: 'new_users', label: 'New Users' },
+    { key: 'returning_users', label: 'Returning Users' },
     { key: 'avg_engagement_time', label: 'Avg Engagement Time' },
-    { key: 'events_per_session', label: 'Events/Session' },
+    { key: 'engaged_sessions_per_user', label: 'Engaged Sessions/User' },
     { key: 'event_count', label: 'Event Count' },
     { key: 'key_events', label: 'Key Events' },
-  ], data, trafficSort, () => renderTrafficTable(rows));
+  ], data, usersSort, () => renderUsersTable(rows));
 }
 
 function renderPagesTable() {
@@ -1954,7 +1939,7 @@ async function loadDashboard() {
     const fetches = [
       fetchJSON(`/api/social?${q}`),
       fetchJSON(`/api/funnel?${q}`),
-      fetchJSON(`/api/traffic?${q}`),
+      fetchJSON(`/api/users?${q}`),
       fetchJSON(`/api/pages?${q}`),
       fetchJSON(`/api/journeys?${q}`),
       fetchJSON(`/api/dashboard-guide?company=${state.company}`),
@@ -1967,7 +1952,7 @@ async function loadDashboard() {
     }
 
     const results = await Promise.all(fetches);
-    const [social, funnel, traffic, pages, journeys, guide, platform, applicants, intelligence, internalReport] = isWorkJapan
+    const [social, funnel, users, pages, journeys, guide, platform, applicants, intelligence, internalReport] = isWorkJapan
       ? results
       : [...results.slice(0, 6), null, null, null, null];
 
@@ -2028,11 +2013,11 @@ async function loadDashboard() {
     renderChartFunnelDevice(funnel.step1Devices || []);
     renderFunnelTable();
 
-    renderTrafficKpis(traffic.kpis);
-    renderChartTrafficDonut(traffic.rows || []);
-    renderChartTrafficBar(traffic.rows || []);
-    renderChartTrafficEngagement(traffic.rows || []);
-    renderTrafficTable(traffic.rows || []);
+    renderUsersKpis(users.kpis);
+    renderChartUsersDonut(users.rows || []);
+    renderChartUsersBar(users.rows || []);
+    renderChartUsersEngagement(users.rows || []);
+    renderUsersTable(users.rows || []);
 
     pagesData = pages.rows || [];
     pagesPage = 1;

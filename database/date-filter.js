@@ -158,12 +158,71 @@ function trafficKpisFromRows(rows) {
   };
 }
 
+function prorateUsersRows(rows, filterStart, filterEnd) {
+  const byChannel = {};
+
+  for (const row of rows) {
+    const fraction = overlapFraction(row.start_date, row.end_date, filterStart, filterEnd);
+    if (fraction <= 0) continue;
+
+    const channel = row.channel_group;
+    if (!byChannel[channel]) {
+      byChannel[channel] = {
+        ...row,
+        total_users: 0,
+        new_users: 0,
+        returning_users: 0,
+        event_count: 0,
+        key_events: 0,
+        _engagementTimeSum: 0,
+        _usersForTime: 0,
+      };
+    }
+
+    const bucket = byChannel[channel];
+    const users = Math.round(row.total_users * fraction);
+    bucket.total_users += users;
+    bucket.new_users += Math.round(row.new_users * fraction);
+    bucket.returning_users += Math.round(row.returning_users * fraction);
+    bucket.event_count += Math.round(row.event_count * fraction);
+    bucket.key_events += Math.round(row.key_events * fraction);
+    bucket._engagementTimeSum += row.avg_engagement_time * users;
+    bucket._usersForTime += users;
+  }
+
+  return Object.values(byChannel)
+    .map((row) => ({
+      ...row,
+      avg_engagement_time: row._usersForTime > 0 ? row._engagementTimeSum / row._usersForTime : 0,
+      engaged_sessions_per_user: row.total_users > 0
+        ? (row.engaged_sessions_per_user || 0)
+        : 0,
+    }))
+    .sort((a, b) => b.total_users - a.total_users);
+}
+
+function usersKpisFromRows(rows) {
+  const totalUsers = rows.reduce((s, r) => s + (r.total_users || 0), 0);
+  const newUsers = rows.reduce((s, r) => s + (r.new_users || 0), 0);
+  const returningUsers = rows.reduce((s, r) => s + (r.returning_users || 0), 0);
+  return {
+    totalUsers,
+    newUsers,
+    returningUsers,
+    newUserRate: totalUsers > 0
+      ? Math.round((newUsers / totalUsers) * 1000) / 10
+      : 0,
+  };
+}
+
 module.exports = {
   overlapFraction,
   parseFunnelDateRange,
   prorateTrafficRows,
+  prorateUsersRows,
   proratePagesRows,
   prorateFunnelRows,
   trafficKpisFromRows,
+  usersKpisFromRows,
   dayCount,
 };

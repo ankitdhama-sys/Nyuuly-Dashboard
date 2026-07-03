@@ -1,0 +1,22 @@
+# ----------------------------------------
+# User acquisition: First user primary channel group (Default Channel Group)
+# Account: WORK JAPAN
+# Property: WORK JAPAN homepage - GA4
+# ----------------------------------------
+# 
+# All Users
+# Start date: 20250701
+# End date: 20260701
+First user primary channel group (Default Channel Group),Total users,New users,Returning users,Average engagement time per active user,Engaged sessions per active user,Event count,Key events,User key event rate
+Direct,445902,412986,20136,32.19456470266109,0.26336212797568953,2762705,10,0.0000067329639180463636
+Organic Search,390850,388744,73133,145.07991471936572,1.009793947842487,6280918,0,0
+Unassigned,17088,17274,2424,111.94126946949291,0.8022016629581918,227315,0,0
+Referral,11820,11692,2645,186.02187552993047,1.1354078344921146,239887,0,0
+Organic Social,9110,9013,987,117.78298247547669,0.7749366251515486,123292,0,0
+AI Assistant,3607,3339,713,135.09775280898876,0.9202247191011236,54951,0,0
+Cross-network,2978,2874,665,179.33153456998315,1.2080944350758853,53548,0,0
+Paid Search,1420,1381,370,273.4528034066714,1.3726046841731725,40851,0,0
+Email,551,395,227,191.64378478664193,1.450834879406308,9863,0,0
+Organic Video,307,294,95,219.8,1.2327868852459016,6729,0,0
+Paid Social,232,231,2,4.517241379310345,0.034482758620689655,803,0,0
+Display,9,7,1,1,0.375,37,0,0

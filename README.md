@@ -48,7 +48,7 @@ npm run dev
 Supported CSV types:
 - **Social Media Posts** — Instagram/Meta export
 - **Funnel Data** — GA4 Funnel Exploration export
-- **Traffic Acquisition** — GA4 Traffic Acquisition export
+- **User Acquisition** — GA4 User Acquisition export (First user primary channel group)
 - **Pages & Screens** — GA4 Pages & Screens export
 
 ## Railway Deployment
@@ -92,7 +92,7 @@ Railway runs `node server.js` automatically. Visit your deployed URL:
 | POST | `/api/upload` | Upload CSV |
 | GET | `/api/social` | Social media data |
 | GET | `/api/funnel` | Funnel data |
-| GET | `/api/traffic` | Traffic acquisition data |
+| GET | `/api/users` | User acquisition data |
 | GET | `/api/pages` | Pages & screens data |
 | GET | `/api/summary` | KPI summary |
 | GET | `/api/upload-history` | Recent uploads |

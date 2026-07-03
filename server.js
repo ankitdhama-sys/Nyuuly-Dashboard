@@ -6,10 +6,10 @@ const rateLimit = require('express-rate-limit');
 const { parse } = require('csv-parse/sync');
 const { db, initDb } = require('./database/db');
 const {
-  prorateTrafficRows,
+  prorateUsersRows,
   proratePagesRows,
   prorateFunnelRows,
-  trafficKpisFromRows,
+  usersKpisFromRows,
 } = require('./database/date-filter');
 const {
   FILE_TYPES,
@@ -71,7 +71,7 @@ function detectFileType(content) {
   }
   if (lines.includes('"Post ID"') || lines.includes('Post ID')) return 'social';
   if (lines.includes('Funnel') || lines.includes('Step,Device category,Active users')) return 'funnel';
-  if (lines.includes('Session primary channel group')) return 'traffic';
+  if (lines.includes('First user primary channel group')) return 'users';
   if (lines.includes('Page path and screen class')) return 'pages';
   return null;
 }
@@ -284,6 +284,53 @@ function parseGa4Header(content) {
   return { startDate, endDate };
 }
 
+function getUsersChannel(row) {
+  const key = Object.keys(row).find((k) => k.toLowerCase().includes('first user primary channel group'));
+  return key ? row[key] : null;
+}
+
+function parseUsersCsv(content, company) {
+  const { startDate, endDate } = parseGa4Header(content);
+  const lines = content.split('\n');
+  const dataLines = lines.filter((l) => !l.trim().startsWith('#') && l.trim() !== '');
+  const rows = parse(dataLines.join('\n'), { columns: true, skip_empty_lines: true, bom: true });
+
+  const stmt = db.prepare(`
+    INSERT OR IGNORE INTO user_acquisition
+    (company, start_date, end_date, channel_group, total_users, new_users, returning_users,
+     avg_engagement_time, engaged_sessions_per_user, event_count, key_events, user_key_event_rate)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  let added = 0;
+  let skipped = 0;
+
+  for (const row of rows) {
+    const channel = getUsersChannel(row);
+    if (!channel) continue;
+
+    const result = stmt.run(
+      company,
+      startDate,
+      endDate,
+      channel,
+      parseNum(row['Total users']),
+      parseNum(row['New users']),
+      parseNum(row['Returning users']),
+      parseNum(row['Average engagement time per active user']),
+      parseNum(row['Engaged sessions per active user']),
+      parseNum(row['Event count']),
+      parseNum(row['Key events']),
+      parseNum(row['User key event rate'])
+    );
+
+    if (result.changes > 0) added++;
+    else skipped++;
+  }
+
+  return { added, skipped };
+}
+
 function getTrafficChannel(row) {
   const key = Object.keys(row).find((k) => k.toLowerCase().includes('session primary channel group'));
   return key ? row[key] : null;
@@ -469,7 +516,7 @@ function parseCsv(content, fileType, company) {
   switch (fileType) {
     case 'social': return parseSocialCsv(content, company);
     case 'funnel': return parseFunnelCsv(content, company);
-    case 'traffic': return parseTrafficCsv(content, company);
+    case 'users': return parseUsersCsv(content, company);
     case 'pages': return parsePagesCsv(content, company);
     case 'platform': return parsePlatformCsv(content, company);
     case 'applicants': return parseApplicantsCsv(content, company);
@@ -927,13 +974,13 @@ app.get('/api/funnel', (req, res) => {
   res.json({ rows, step1Devices, filter: { company, start, end } });
 });
 
-app.get('/api/traffic', (req, res) => {
+app.get('/api/users', (req, res) => {
   const { company, start, end } = req.query;
   const { clause, params } = buildGa4DateQuery(company, start, end);
 
-  const rawRows = db.prepare(`SELECT * FROM traffic_acquisition ${clause} ORDER BY sessions DESC`).all(...params);
-  const rows = start && end ? prorateTrafficRows(rawRows, start, end) : rawRows;
-  const kpis = trafficKpisFromRows(rows);
+  const rawRows = db.prepare(`SELECT * FROM user_acquisition ${clause} ORDER BY total_users DESC`).all(...params);
+  const rows = start && end ? prorateUsersRows(rawRows, start, end) : rawRows;
+  const kpis = usersKpisFromRows(rows);
 
   res.json({ rows, kpis, filter: { company, start, end } });
 });
@@ -1332,13 +1379,14 @@ app.get('/api/summary', (req, res) => {
     GROUP BY company
   `).all(...socialQ.params);
 
-  const traffic = db.prepare(`
+  const users = db.prepare(`
     SELECT company,
-      COALESCE(SUM(sessions), 0) as sessions,
-      COALESCE(SUM(engaged_sessions), 0) as engagedSessions,
-      CASE WHEN SUM(sessions) > 0 THEN ROUND(CAST(SUM(engaged_sessions) AS REAL) / SUM(sessions) * 100, 1) ELSE 0 END as engagementRate,
-      CASE WHEN SUM(sessions) > 0 THEN ROUND(SUM(avg_engagement_time * sessions) / SUM(sessions), 1) ELSE 0 END as avgEngagementTime
-    FROM traffic_acquisition ${ga4Q.clause}
+      COALESCE(SUM(total_users), 0) as totalUsers,
+      COALESCE(SUM(new_users), 0) as newUsers,
+      COALESCE(SUM(returning_users), 0) as returningUsers,
+      CASE WHEN SUM(total_users) > 0 THEN ROUND(CAST(SUM(new_users) AS REAL) / SUM(total_users) * 100, 1) ELSE 0 END as newUserRate,
+      CASE WHEN SUM(total_users) > 0 THEN ROUND(SUM(avg_engagement_time * total_users) / SUM(total_users), 1) ELSE 0 END as avgEngagementTime
+    FROM user_acquisition ${ga4Q.clause}
     GROUP BY company
   `).all(...ga4Q.params);
 
@@ -1357,7 +1405,7 @@ app.get('/api/summary', (req, res) => {
     LIMIT 1
   `).all(...ga4Q.params);
 
-  res.json({ social, traffic, funnel, topPages });
+  res.json({ social, users, funnel, topPages });
 });
 
 app.get('/api/upload-history', (req, res) => {
@@ -1434,13 +1482,13 @@ app.get('/api/journeys', (req, res) => {
     FROM social_posts ${socialQ.clause}
   `).get(...socialQ.params);
 
-  const rawTrafficRows = db.prepare(`
-    SELECT * FROM traffic_acquisition ${ga4Q.clause} ORDER BY sessions DESC
+  const rawUserRows = db.prepare(`
+    SELECT * FROM user_acquisition ${ga4Q.clause} ORDER BY total_users DESC
   `).all(...ga4Q.params);
-  const trafficRows = start && end
-    ? prorateTrafficRows(rawTrafficRows, start, end)
-    : rawTrafficRows;
-  const trafficKpis = trafficKpisFromRows(trafficRows);
+  const userRows = start && end
+    ? prorateUsersRows(rawUserRows, start, end)
+    : rawUserRows;
+  const usersKpis = usersKpisFromRows(userRows);
 
   const rawPages = db.prepare(`
     SELECT * FROM pages_screens ${ga4Q.clause} ORDER BY views DESC
@@ -1469,7 +1517,7 @@ app.get('/api/journeys', (req, res) => {
   const funnelRows = start && end ? prorateFunnelRows(rawFunnelRows, start, end) : rawFunnelRows;
 
   const ga4Funnel = buildGa4FunnelSteps(funnelRows);
-  const funnelEntryUsers = ga4Funnel[0]?.users || trafficKpis.totalSessions || 0;
+  const funnelEntryUsers = ga4Funnel[0]?.users || usersKpis.totalUsers || 0;
   const jobDetailAgg = aggregateJobDetails(pages);
   const topJobCategories = journeyCompany === 'workjapan' ? getTopJobCategories(pages) : [];
 
@@ -1492,16 +1540,7 @@ app.get('/api/journeys', (req, res) => {
           socialReach: socialKpis.totalReach,
           socialEngagement: socialKpis.totalEngagement,
           postCount: socialKpis.postCount,
-          sessions: trafficKpis.totalSessions,
-          engagedSessions: trafficKpis.totalEngagedSessions,
-          engagementRate: trafficKpis.engagementRate,
         },
-        topChannels: trafficRows.slice(0, 8).map((r) => ({
-          channel: r.channel_group,
-          sessions: r.sessions,
-          engagedSessions: r.engaged_sessions,
-          engagementRate: r.engagement_rate,
-        })),
       };
     }
 
@@ -1527,9 +1566,10 @@ app.get('/api/journeys', (req, res) => {
           avgTime: p.avg_engagement_time,
         })),
         ga4Funnel: ga4Funnel.slice(0, 3),
-        entryChannels: trafficRows.slice(0, 5).map((r) => ({
+        entryChannels: userRows.slice(0, 5).map((r) => ({
           channel: r.channel_group,
-          sessions: r.sessions,
+          totalUsers: r.total_users,
+          newUsers: r.new_users,
         })),
       };
     }
@@ -1648,7 +1688,7 @@ app.get('/api/journeys', (req, res) => {
   const dataCompleteness = {
     social: socialKpis.totalViews > 0 || socialKpis.totalReach > 0,
     funnel: funnelRows.length > 0,
-    traffic: trafficKpis.totalSessions > 0,
+    users: usersKpis.totalUsers > 0,
     pages: pages.length > 0,
   };
 
@@ -1671,7 +1711,7 @@ app.get('/api/journeys', (req, res) => {
         browse: browseJourney,
         jobDetail: jobDetailJourney,
         landingPages,
-        trafficRows,
+        trafficRows: userRows,
         topJobCategories,
         ga4Funnel,
         funnelEntryUsers,
@@ -1698,7 +1738,7 @@ app.delete('/api/data', (req, res) => {
     return res.status(400).json({ error: 'Must pass confirm=yes' });
   }
 
-  const allowedTables = ['social_posts', 'funnel_data', 'traffic_acquisition', 'pages_screens', 'platform_stats', 'applicant_stats'];
+  const allowedTables = ['social_posts', 'funnel_data', 'traffic_acquisition', 'user_acquisition', 'pages_screens', 'platform_stats', 'applicant_stats'];
   if (!allowedTables.includes(table)) {
     return res.status(400).json({ error: 'Invalid table name' });
   }
