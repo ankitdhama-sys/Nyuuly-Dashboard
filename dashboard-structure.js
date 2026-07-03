@@ -20,7 +20,7 @@ const WORKJAPAN_FUNNEL_STAGES = [
     number: 2,
     label: 'Consideration',
     question: 'Where do users come from, what pages do they view, and where do they drop off?',
-    summary: 'User acquisition channels, page navigation, job browsing, and the biggest drop-offs before registration.',
+    summary: 'Total website users (User Acquisition CSV), plus page navigation, job browsing, and drop-offs before registration.',
     anchor: 'stage-consideration',
     dataSources: ['User Acquisition CSV (GA4)', 'Pages CSV', 'Funnel CSV', 'Platform registrations (manual, month-to-date)'],
     journeyIds: ['browse-jobs', 'job-detail'],

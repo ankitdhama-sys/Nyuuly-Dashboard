@@ -95,8 +95,19 @@ Railway runs `node server.js` automatically. Visit your deployed URL:
 | GET | `/api/users` | User acquisition data |
 | GET | `/api/pages` | Pages & screens data |
 | GET | `/api/summary` | KPI summary |
+| GET | `/api/available-months` | Months (YYYY-MM) that have data |
+| GET | `/api/monthly` | Per-KPI totals for a month + change vs previous month |
 | GET | `/api/upload-history` | Recent uploads |
 | DELETE | `/api/data` | Clear data |
+
+## Monthly comparison mode
+
+The dashboard has two filter modes (top controls):
+
+- **Day Range** — Last 7 / 30 / 90 days or a custom range. GA4 aggregates are prorated (estimated) across the selected range.
+- **Monthly** — pick a calendar month; every KPI shows that month's exact totals with a percentage-change badge versus the previous month (no proration).
+
+For Monthly mode to be accurate, upload **one export per whole calendar month** for every GA4 file (User Acquisition, Pages, Funnel) and Social. Each upload's date range is grouped into a `YYYY-MM` month key. Manual monthly stats (registrations, applications, etc.) already align on the same month axis.
 
 ## Project Structure
 

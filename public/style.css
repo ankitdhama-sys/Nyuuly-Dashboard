@@ -140,6 +140,44 @@ a:hover {
   font-size: 0.85rem;
 }
 
+.month-select {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.kpi-delta {
+  display: inline-block;
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+}
+
+.kpi-delta-up {
+  color: #16a34a;
+  background: rgba(22, 163, 74, 0.12);
+}
+
+.kpi-delta-down {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.12);
+}
+
+.kpi-delta-flat {
+  color: var(--text-muted);
+  background: var(--bg-hover);
+}
+
+.pipeline-stage .kpi-delta {
+  margin-top: 0.25rem;
+}
+
 .toggle-group {
   display: flex;
   align-items: center;

@@ -19,6 +19,9 @@ let state = {
   startDate: null,
   endDate: null,
   activeJourney: 'awareness',
+  mode: 'range',
+  month: null,
+  availableMonths: [],
 };
 
 let journeyData = null;
@@ -45,6 +48,34 @@ function formatPct(n) {
   if (n == null) return '0%';
   const val = n <= 1 ? n * 100 : n;
   return val.toFixed(1) + '%';
+}
+
+/** Returns a month-over-month delta badge for the given metric key, or '' when not in monthly mode. */
+function deltaBadge(deltas, key) {
+  if (state.mode !== 'month' || !deltas || !deltas[key]) return '';
+  const d = deltas[key].deltaPct;
+  if (d == null) return '<span class="kpi-delta kpi-delta-flat">— no prev</span>';
+  if (d > 0) return `<span class="kpi-delta kpi-delta-up">▲ ${Math.abs(d).toFixed(1)}%</span>`;
+  if (d < 0) return `<span class="kpi-delta kpi-delta-down">▼ ${Math.abs(d).toFixed(1)}%</span>`;
+  return '<span class="kpi-delta kpi-delta-flat">0.0%</span>';
+}
+
+async function loadAvailableMonths() {
+  try {
+    const data = await fetchJSON(`/api/available-months?company=${state.company}`);
+    state.availableMonths = data.months || [];
+    if (!state.month || !state.availableMonths.some((m) => m.key === state.month)) {
+      state.month = data.latest || null;
+    }
+    const sel = document.getElementById('monthSelect');
+    if (sel) {
+      sel.innerHTML = state.availableMonths.map((m) =>
+        `<option value="${m.key}" ${m.key === state.month ? 'selected' : ''}>${m.label}</option>`
+      ).join('') || '<option value="">No monthly data</option>';
+    }
+  } catch {
+    state.availableMonths = [];
+  }
 }
 
 function getDateRange() {
@@ -225,12 +256,11 @@ function renderFunnelNav(guide) {
   ].join('');
 }
 
-function renderFunnelPipeline(journeys, platform, applicants, social) {
+function renderFunnelPipeline(journeys, platform, applicants, social, users, deltas) {
   const el = document.getElementById('funnelPipeline');
   if (!el || state.company !== 'workjapan') return;
 
   const awareness = journeyById(journeys, 'awareness');
-  const seeker = journeyById(journeys, 'seeker-application');
   const register = journeyById(journeys, 'register-apply');
 
   const stages = [
@@ -240,15 +270,15 @@ function renderFunnelPipeline(journeys, platform, applicants, social) {
       label: 'Awareness',
       value: formatNum(awareness?.kpis?.socialViews),
       detail: `${formatNum(awareness?.kpis?.socialReach)} reach`,
+      deltaKey: 'socialViews',
     },
     {
       anchor: 'stage-consideration',
       num: 2,
       label: 'Consideration',
-      value: formatNum(seeker?.kpis?.started),
-      detail: seeker?.kpis?.biggestDropOffStep
-        ? `Biggest drop: ${seeker.kpis.biggestDropOffStep} (${formatPct(seeker.kpis.biggestDropOffPct)})`
-        : 'Browse → job detail path',
+      value: formatNum(users?.kpis?.totalUsers),
+      detail: null,
+      deltaKey: 'totalUsers',
     },
     {
       anchor: 'stage-commit',
@@ -256,6 +286,7 @@ function renderFunnelPipeline(journeys, platform, applicants, social) {
       label: 'Commit (CV)',
       value: formatNum(platform?.kpis?.totalRegistrations || register?.kpis?.activeUsers),
       detail: `${formatPct(register?.kpis?.conversionRate)} conversion to register`,
+      deltaKey: 'registrations',
     },
     {
       anchor: 'stage-proceed',
@@ -263,6 +294,7 @@ function renderFunnelPipeline(journeys, platform, applicants, social) {
       label: 'Proceed',
       value: formatNum(applicants?.latest?.total_applications ?? applicants?.kpis?.totalApplications),
       detail: `${formatNum(applicants?.latest?.unique_applicants)} unique applicants`,
+      deltaKey: 'totalApplications',
     },
     {
       anchor: 'stage-result',
@@ -270,6 +302,7 @@ function renderFunnelPipeline(journeys, platform, applicants, social) {
       label: 'Result',
       value: formatNum(applicants?.latest?.selected ?? applicants?.kpis?.selected),
       detail: `${formatNum(applicants?.latest?.interviews_fixed)} interviews`,
+      deltaKey: 'selected',
     },
   ];
 
@@ -278,7 +311,8 @@ function renderFunnelPipeline(journeys, platform, applicants, social) {
       <div class="pipeline-num">${s.num}</div>
       <div class="pipeline-label">${s.label}</div>
       <div class="pipeline-value">${s.value}</div>
-      <div class="pipeline-detail">${s.detail}</div>
+      ${deltaBadge(deltas, s.deltaKey)}
+      ${s.detail ? `<div class="pipeline-detail">${s.detail}</div>` : ''}
     </a>
     ${i < stages.length - 1 ? '<div class="pipeline-arrow">→</div>' : ''}
   `).join('');
@@ -842,7 +876,7 @@ function renderTopJobsTable(topJobs) {
   `).join('');
 }
 
-function renderApplicantProceedKpis(kpis, latest) {
+function renderApplicantProceedKpis(kpis, latest, deltas) {
   const el = document.getElementById('applicantProceedKpis');
   if (!el) return;
   if (!latest && (!kpis || !kpis.uniqueApplicants)) {
@@ -851,13 +885,13 @@ function renderApplicantProceedKpis(kpis, latest) {
   }
   const data = latest || kpis;
   el.innerHTML = `
-    <div class="kpi-card"><div class="label">Unique Applicants</div><div class="value">${formatNum(data.unique_applicants ?? data.uniqueApplicants)}</div></div>
-    <div class="kpi-card"><div class="label">Total Applications</div><div class="value">${formatNum(data.total_applications ?? data.totalApplications)}</div></div>
+    <div class="kpi-card"><div class="label">Unique Applicants</div><div class="value">${formatNum(data.unique_applicants ?? data.uniqueApplicants)}</div>${deltaBadge(deltas, 'uniqueApplicants')}</div>
+    <div class="kpi-card"><div class="label">Total Applications</div><div class="value">${formatNum(data.total_applications ?? data.totalApplications)}</div>${deltaBadge(deltas, 'totalApplications')}</div>
     <div class="kpi-card"><div class="label">Latest Month</div><div class="value" style="font-size:1rem">${data.month_label || '—'}</div></div>
   `;
 }
 
-function renderApplicantResultKpis(kpis, latest) {
+function renderApplicantResultKpis(kpis, latest, deltas) {
   const el = document.getElementById('applicantResultKpis');
   if (!el) return;
   if (!latest && (!kpis || !kpis.selected)) {
@@ -869,7 +903,7 @@ function renderApplicantResultKpis(kpis, latest) {
     <div class="kpi-card"><div class="label">Screening Passes</div><div class="value">${formatNum(data.screening_passes ?? data.screeningPasses)}</div></div>
     <div class="kpi-card"><div class="label">Interviews Fixed</div><div class="value">${formatNum(data.interviews_fixed ?? data.interviewsFixed)}</div></div>
     <div class="kpi-card"><div class="label">Remaining ESP</div><div class="value">${formatNum(data.remaining_esp ?? data.remainingEsp)}</div></div>
-    <div class="kpi-card"><div class="label">Selected</div><div class="value">${formatNum(data.selected)}</div></div>
+    <div class="kpi-card"><div class="label">Selected</div><div class="value">${formatNum(data.selected)}</div>${deltaBadge(deltas, 'selected')}</div>
   `;
 }
 
@@ -887,7 +921,7 @@ function renderProceedWebFunnel(journeys) {
   `;
 }
 
-function renderPlatformKpis(kpis) {
+function renderPlatformKpis(kpis, deltas) {
   const el = document.getElementById('platformKpis');
   if (!el) return;
   if (!kpis || (!kpis.totalRegistrations && !kpis.totalActiveUsers)) {
@@ -895,8 +929,8 @@ function renderPlatformKpis(kpis) {
     return;
   }
   el.innerHTML = `
-    <div class="kpi-card"><div class="label">Total Registrations</div><div class="value">${formatNum(kpis.totalRegistrations)}</div></div>
-    <div class="kpi-card"><div class="label">Total Active Users</div><div class="value">${formatNum(kpis.totalActiveUsers)}</div></div>
+    <div class="kpi-card"><div class="label">Total Registrations</div><div class="value">${formatNum(kpis.totalRegistrations)}</div>${deltaBadge(deltas, 'registrations')}</div>
+    <div class="kpi-card"><div class="label">Total Active Users</div><div class="value">${formatNum(kpis.totalActiveUsers)}</div>${deltaBadge(deltas, 'platformActiveUsers')}</div>
   `;
 }
 
@@ -1359,30 +1393,30 @@ async function loadLastUpdated() {
   } catch (_) {}
 }
 
-function renderSocialKpis(kpis) {
+function renderSocialKpis(kpis, deltas) {
   const el = document.getElementById('socialKpis');
     if (!kpis || (kpis.totalViews === 0 && kpis.totalReach === 0 && kpis.totalLikes === 0)) {
     el.innerHTML = '<div class="empty-state">No social data for this date range — <a href="/upload">upload a CSV</a></div>';
     return;
   }
   el.innerHTML = `
-    <div class="kpi-card"><div class="label">Total Views</div><div class="value">${formatNum(kpis.totalViews)}</div></div>
-    <div class="kpi-card"><div class="label">Total Reach</div><div class="value">${formatNum(kpis.totalReach)}</div></div>
+    <div class="kpi-card"><div class="label">Total Views</div><div class="value">${formatNum(kpis.totalViews)}</div>${deltaBadge(deltas, 'socialViews')}</div>
+    <div class="kpi-card"><div class="label">Total Reach</div><div class="value">${formatNum(kpis.totalReach)}</div>${deltaBadge(deltas, 'socialReach')}</div>
     <div class="kpi-card"><div class="label">Total Likes</div><div class="value">${formatNum(kpis.totalLikes)}</div></div>
-    <div class="kpi-card"><div class="label">Total Engagement</div><div class="value">${formatNum(kpis.totalEngagement)}</div></div>
+    <div class="kpi-card"><div class="label">Total Engagement</div><div class="value">${formatNum(kpis.totalEngagement)}</div>${deltaBadge(deltas, 'socialEngagement')}</div>
   `;
 }
 
-function renderUsersKpis(kpis) {
+function renderUsersKpis(kpis, deltas) {
   const el = document.getElementById('usersKpis');
   if (!kpis || !kpis.totalUsers) {
     el.innerHTML = '<div class="empty-state">No user acquisition data for this date range — <a href="/upload">upload a CSV</a></div>';
     return;
   }
   el.innerHTML = `
-    <div class="kpi-card"><div class="label">Total Users</div><div class="value">${formatNum(kpis.totalUsers)}</div></div>
-    <div class="kpi-card"><div class="label">New Users</div><div class="value">${formatNum(kpis.newUsers)}</div></div>
-    <div class="kpi-card"><div class="label">Returning Users</div><div class="value">${formatNum(kpis.returningUsers)}</div></div>
+    <div class="kpi-card"><div class="label">Total Users</div><div class="value">${formatNum(kpis.totalUsers)}</div>${deltaBadge(deltas, 'totalUsers')}</div>
+    <div class="kpi-card"><div class="label">New Users</div><div class="value">${formatNum(kpis.newUsers)}</div>${deltaBadge(deltas, 'newUsers')}</div>
+    <div class="kpi-card"><div class="label">Returning Users</div><div class="value">${formatNum(kpis.returningUsers)}</div>${deltaBadge(deltas, 'returningUsers')}</div>
   `;
 }
 
@@ -1956,12 +1990,20 @@ async function loadDashboard() {
       ? results
       : [...results.slice(0, 6), null, null, null, null];
 
+    let deltas = null;
+    if (state.mode === 'month') {
+      const monthQ = new URLSearchParams({ company: state.company });
+      if (state.month) monthQ.set('month', state.month);
+      const monthly = await fetchJSON(`/api/monthly?${monthQ.toString()}`);
+      deltas = monthly.kpis || {};
+    }
+
     updateFilterLabel(journeys.filter || social.filter);
     renderDashboardGuide(guide);
     renderFunnelNav(guide);
 
     if (isWorkJapan) {
-      renderFunnelPipeline(journeys, platform, applicants, social);
+      renderFunnelPipeline(journeys, platform, applicants, social, users, deltas);
       renderConsiderationInsights(journeys.consideration);
       if (typeof renderInternalReporting === 'function') {
         renderInternalReporting(internalReport);
@@ -1973,14 +2015,14 @@ async function loadDashboard() {
       renderChartNationality(intelligence?.nationality?.top);
       renderTopJobsTable(intelligence?.topJobs);
 
-      renderPlatformKpis(platform.kpis);
+      renderPlatformKpis(platform.kpis, deltas);
       renderChartRegistrationsByMonth(platform.byMonth, platform.platforms);
       renderChartActiveByPlatform(platform.byPlatform);
       renderPlatformTable(platform.rows);
 
       renderProceedWebFunnel(journeys);
-      renderApplicantProceedKpis(applicants.kpis, applicants.latest);
-      renderApplicantResultKpis(applicants.kpis, applicants.latest);
+      renderApplicantProceedKpis(applicants.kpis, applicants.latest, deltas);
+      renderApplicantResultKpis(applicants.kpis, applicants.latest, deltas);
       renderChartApplicantFunnel(applicants.funnelSteps, applicants.latest?.month_label);
       renderChartApplicantsByMonth(applicants.rows);
       renderApplicantTable(applicants.rows);
@@ -1995,7 +2037,7 @@ async function loadDashboard() {
     renderJourneyPanel(journeys);
     renderLandingTable(journeys.landingPages);
 
-    renderSocialKpis(social.kpis);
+    renderSocialKpis(social.kpis, deltas);
     renderChartViewsReach(social.timeSeries || []);
     renderChartEngagement(social.topPosts || []);
     renderChartPostTypes(social.postTypes || []);
@@ -2013,7 +2055,7 @@ async function loadDashboard() {
     renderChartFunnelDevice(funnel.step1Devices || []);
     renderFunnelTable();
 
-    renderUsersKpis(users.kpis);
+    renderUsersKpis(users.kpis, deltas);
     renderChartUsersDonut(users.rows || []);
     renderChartUsersBar(users.rows || []);
     renderChartUsersEngagement(users.rows || []);
@@ -2039,6 +2081,30 @@ function initControls() {
     btn.classList.add('active');
     state.company = btn.dataset.company;
     state.activeJourney = 'awareness';
+    loadDashboard();
+  });
+
+  document.getElementById('modeGroup').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-mode]');
+    if (!btn) return;
+    document.querySelectorAll('#modeGroup .tab-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.mode = btn.dataset.mode;
+
+    const dateGroup = document.getElementById('dateGroup');
+    const monthSelect = document.getElementById('monthSelect');
+    const isMonth = state.mode === 'month';
+    dateGroup.style.display = isMonth ? 'none' : '';
+    monthSelect.style.display = isMonth ? 'inline-block' : 'none';
+
+    if (isMonth) {
+      await loadAvailableMonths();
+    }
+    loadDashboard();
+  });
+
+  document.getElementById('monthSelect').addEventListener('change', (e) => {
+    state.month = e.target.value;
     loadDashboard();
   });
 

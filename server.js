@@ -601,6 +601,119 @@ function logUpload(filename, company, fileType, rowsAdded, rowsSkipped) {
   `).run(filename, company, fileType, rowsAdded, rowsSkipped);
 }
 
+/**
+ * SQL expressions that derive a YYYY-MM month key from each source table.
+ * Used for the Monthly comparison mode (whole-calendar-month uploads).
+ */
+const MONTH_KEY_SQL = {
+  user_acquisition: `substr(start_date, 1, 7)`,
+  pages_screens: `substr(start_date, 1, 7)`,
+  funnel_data: `substr(date_range, 1, 4) || '-' || substr(date_range, 5, 2)`,
+  social_posts: `strftime('%Y-%m', publish_time)`,
+  monthly: `printf('%04d-%02d', year, month)`,
+};
+
+const MONTH_SHORT_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function monthKeyLabel(key) {
+  if (!key || !/^\d{4}-\d{2}$/.test(key)) return key || '';
+  const [year, month] = key.split('-').map(Number);
+  return `${MONTH_SHORT_NAMES[month - 1] || month} ${year}`;
+}
+
+function companyClause(company, prefixWhere = true) {
+  if (company && company !== 'all') {
+    return { clause: `${prefixWhere ? 'WHERE ' : ''}company = ?`, params: [company] };
+  }
+  return { clause: prefixWhere ? 'WHERE 1=1' : '1=1', params: [] };
+}
+
+/** Distinct month keys (YYYY-MM) that have data in any source, sorted ascending. */
+function getAvailableMonths(company) {
+  const co = companyClause(company);
+  const queries = [
+    `SELECT DISTINCT ${MONTH_KEY_SQL.user_acquisition} AS mk FROM user_acquisition ${co.clause}`,
+    `SELECT DISTINCT ${MONTH_KEY_SQL.pages_screens} AS mk FROM pages_screens ${co.clause}`,
+    `SELECT DISTINCT ${MONTH_KEY_SQL.funnel_data} AS mk FROM funnel_data ${co.clause}`,
+    `SELECT DISTINCT ${MONTH_KEY_SQL.social_posts} AS mk FROM social_posts ${co.clause}`,
+    `SELECT DISTINCT ${MONTH_KEY_SQL.monthly} AS mk FROM platform_stats ${co.clause}`,
+    `SELECT DISTINCT ${MONTH_KEY_SQL.monthly} AS mk FROM applicant_stats ${co.clause}`,
+  ];
+  const set = new Set();
+  for (const q of queries) {
+    for (const row of db.prepare(q).all(...co.params)) {
+      if (row.mk && /^\d{4}-\d{2}$/.test(row.mk)) set.add(row.mk);
+    }
+  }
+  return [...set].sort();
+}
+
+function deltaPct(value, prevValue) {
+  if (prevValue == null || prevValue === 0) return null;
+  return Math.round(((value - prevValue) / prevValue) * 1000) / 10;
+}
+
+/** Aggregate every KPI for a single month key. Returns flat metric map. */
+function monthlyKpisForMonth(company, monthKey) {
+  const co = company && company !== 'all' ? company : null;
+  const withCompany = (extra) => (co ? [co, monthKey] : [monthKey]);
+  const coFilter = co ? 'company = ? AND' : '';
+
+  const social = db.prepare(`
+    SELECT
+      COALESCE(SUM(views), 0) AS socialViews,
+      COALESCE(SUM(reach), 0) AS socialReach,
+      COALESCE(SUM(likes + comments + shares + saves), 0) AS socialEngagement,
+      COUNT(*) AS postCount
+    FROM social_posts
+    WHERE ${coFilter} ${MONTH_KEY_SQL.social_posts} = ?
+  `).get(...withCompany());
+
+  const users = db.prepare(`
+    SELECT
+      COALESCE(SUM(total_users), 0) AS totalUsers,
+      COALESCE(SUM(new_users), 0) AS newUsers,
+      COALESCE(SUM(returning_users), 0) AS returningUsers
+    FROM user_acquisition
+    WHERE ${coFilter} ${MONTH_KEY_SQL.user_acquisition} = ?
+  `).get(...withCompany());
+
+  const pages = db.prepare(`
+    SELECT
+      COALESCE(SUM(views), 0) AS pageViews,
+      COALESCE(SUM(active_users), 0) AS pageActiveUsers
+    FROM pages_screens
+    WHERE ${coFilter} ${MONTH_KEY_SQL.pages_screens} = ?
+  `).get(...withCompany());
+
+  const funnel = db.prepare(`
+    SELECT
+      COALESCE(AVG(completion_rate), 0) AS funnelCompletion,
+      COALESCE(SUM(active_users), 0) AS funnelActiveUsers
+    FROM funnel_data
+    WHERE ${coFilter} device_category = 'Total' AND ${MONTH_KEY_SQL.funnel_data} = ?
+  `).get(...withCompany());
+
+  const platform = db.prepare(`
+    SELECT
+      COALESCE(SUM(registrations), 0) AS registrations,
+      COALESCE(SUM(active_users), 0) AS platformActiveUsers
+    FROM platform_stats
+    WHERE ${coFilter} ${MONTH_KEY_SQL.monthly} = ?
+  `).get(...withCompany());
+
+  const applicants = db.prepare(`
+    SELECT
+      COALESCE(SUM(unique_applicants), 0) AS uniqueApplicants,
+      COALESCE(SUM(total_applications), 0) AS totalApplications,
+      COALESCE(SUM(selected), 0) AS selected
+    FROM applicant_stats
+    WHERE ${coFilter} ${MONTH_KEY_SQL.monthly} = ?
+  `).get(...withCompany());
+
+  return { ...social, ...users, ...pages, ...funnel, ...platform, ...applicants };
+}
+
 function savePlatformRow(company, parsedMonth, platform, registrations, activeUsers) {
   db.prepare(`
     INSERT OR REPLACE INTO platform_stats
@@ -1363,6 +1476,48 @@ app.post('/api/manual/barriers', uploadLimiter, (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+app.get('/api/available-months', (req, res) => {
+  const { company } = req.query;
+  const months = getAvailableMonths(company);
+  res.json({
+    months: months.map((key) => ({ key, label: monthKeyLabel(key) })),
+    latest: months.length ? months[months.length - 1] : null,
+  });
+});
+
+app.get('/api/monthly', (req, res) => {
+  const { company } = req.query;
+  const months = getAvailableMonths(company);
+  const month = req.query.month || (months.length ? months[months.length - 1] : null);
+
+  if (!month) {
+    return res.json({ month: null, prevMonth: null, kpis: {}, months: [] });
+  }
+
+  const idx = months.indexOf(month);
+  const prevMonth = idx > 0 ? months[idx - 1] : null;
+
+  const current = monthlyKpisForMonth(company, month);
+  const previous = prevMonth ? monthlyKpisForMonth(company, prevMonth) : null;
+
+  const kpis = {};
+  for (const key of Object.keys(current)) {
+    const value = current[key] || 0;
+    const prevValue = previous ? (previous[key] || 0) : null;
+    kpis[key] = { value, prevValue, deltaPct: deltaPct(value, prevValue) };
+  }
+
+  res.json({
+    month,
+    monthLabel: monthKeyLabel(month),
+    prevMonth,
+    prevMonthLabel: prevMonth ? monthKeyLabel(prevMonth) : null,
+    kpis,
+    months: months.map((key) => ({ key, label: monthKeyLabel(key) })),
+    filter: { company, month },
+  });
 });
 
 app.get('/api/summary', (req, res) => {

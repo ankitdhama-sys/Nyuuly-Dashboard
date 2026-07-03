@@ -22,6 +22,10 @@
       <button class="tab-btn" data-company="nyuuly">Nyuuly</button>
       <button class="tab-btn active" data-company="workjapan">WORK JAPAN</button>
     </div>
+    <div class="tab-group" id="modeGroup">
+      <button class="tab-btn active" data-mode="range">Day Range</button>
+      <button class="tab-btn" data-mode="month">Monthly</button>
+    </div>
     <div class="date-group" id="dateGroup">
       <button class="tab-btn" data-range="7">Last 7 Days</button>
       <button class="tab-btn" data-range="30">Last 30 Days</button>
@@ -30,6 +34,7 @@
       <input type="date" id="startDate" style="display:none">
       <input type="date" id="endDate" style="display:none">
     </div>
+    <select id="monthSelect" class="month-select" style="display:none"></select>
     <div class="filter-label" id="filterLabel">Loading filters…</div>
     <div class="data-status" id="dataStatus" title="Weekly CSV upload status">
       <span class="data-status-label">Data files:</span>
