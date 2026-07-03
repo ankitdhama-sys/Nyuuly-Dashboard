@@ -217,16 +217,18 @@ function parseSocialCsv(content, company) {
   return { added, skipped };
 }
 
-function parseFunnelCsv(content, company) {
+function parseFunnelCsv(content, company, override) {
   const lines = content.split('\n');
-  let dateRange = null;
+  let dateRange = override?.dateRange || null;
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('#')) {
-      const match = trimmed.match(/#\s*(\d{8})-(\d{8})/);
-      if (match) {
-        dateRange = `${match[1]}-${match[2]}`;
+  if (!dateRange) {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('#')) {
+        const match = trimmed.match(/#\s*(\d{8})-(\d{8})/);
+        if (match) {
+          dateRange = `${match[1]}-${match[2]}`;
+        }
       }
     }
   }
@@ -266,6 +268,27 @@ function parseFunnelCsv(content, company) {
   return { added, skipped };
 }
 
+/**
+ * Build explicit month-aligned dates from a 'YYYY-MM' key.
+ * Used when the uploader picks a month, so the stored range is the whole
+ * calendar month regardless of what the CSV header says.
+ */
+function monthRangeFromKey(month) {
+  const m = /^(\d{4})-(\d{2})$/.exec((month || '').trim());
+  if (!m) return null;
+  const year = Number(m[1]);
+  const mon = Number(m[2]);
+  if (mon < 1 || mon > 12) return null;
+  const lastDay = new Date(year, mon, 0).getDate();
+  const mm = String(mon).padStart(2, '0');
+  const dd = String(lastDay).padStart(2, '0');
+  return {
+    startDate: `${year}-${mm}-01`,
+    endDate: `${year}-${mm}-${dd}`,
+    dateRange: `${year}${mm}01-${year}${mm}${dd}`,
+  };
+}
+
 function parseGa4Header(content) {
   const lines = content.split('\n');
   let startDate = null;
@@ -289,8 +312,10 @@ function getUsersChannel(row) {
   return key ? row[key] : null;
 }
 
-function parseUsersCsv(content, company) {
-  const { startDate, endDate } = parseGa4Header(content);
+function parseUsersCsv(content, company, override) {
+  const header = parseGa4Header(content);
+  const startDate = override?.startDate || header.startDate;
+  const endDate = override?.endDate || header.endDate;
   const lines = content.split('\n');
   const dataLines = lines.filter((l) => !l.trim().startsWith('#') && l.trim() !== '');
   const rows = parse(dataLines.join('\n'), { columns: true, skip_empty_lines: true, bom: true });
@@ -379,8 +404,10 @@ function parseTrafficCsv(content, company) {
   return { added, skipped };
 }
 
-function parsePagesCsv(content, company) {
-  const { startDate, endDate } = parseGa4Header(content);
+function parsePagesCsv(content, company, override) {
+  const header = parseGa4Header(content);
+  const startDate = override?.startDate || header.startDate;
+  const endDate = override?.endDate || header.endDate;
   const lines = content.split('\n');
   const dataLines = lines.filter((l) => !l.trim().startsWith('#') && l.trim() !== '');
   const rows = parse(dataLines.join('\n'), { columns: true, skip_empty_lines: true, bom: true });
@@ -512,12 +539,12 @@ function parseApplicantsCsv(content, company) {
   return { added, skipped };
 }
 
-function parseCsv(content, fileType, company) {
+function parseCsv(content, fileType, company, override) {
   switch (fileType) {
     case 'social': return parseSocialCsv(content, company);
-    case 'funnel': return parseFunnelCsv(content, company);
-    case 'users': return parseUsersCsv(content, company);
-    case 'pages': return parsePagesCsv(content, company);
+    case 'funnel': return parseFunnelCsv(content, company, override);
+    case 'users': return parseUsersCsv(content, company, override);
+    case 'pages': return parsePagesCsv(content, company, override);
     case 'platform': return parsePlatformCsv(content, company);
     case 'applicants': return parseApplicantsCsv(content, company);
     default: throw new Error('Unknown file type');
@@ -921,7 +948,16 @@ app.post('/api/upload', uploadLimiter, upload.single('file'), (req, res) => {
       });
     }
 
-    const { added, skipped } = parseCsv(content, fileType, company);
+    let override = null;
+    if (req.body.month) {
+      override = monthRangeFromKey(req.body.month);
+      if (!override) {
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ error: 'Invalid month. Use format YYYY-MM.' });
+      }
+    }
+
+    const { added, skipped } = parseCsv(content, fileType, company, override);
     logUpload(req.file.originalname, company, fileType, added, skipped);
     fs.unlinkSync(req.file.path);
 
@@ -930,6 +966,7 @@ app.post('/api/upload', uploadLimiter, upload.single('file'), (req, res) => {
       rowsSkipped: skipped,
       fileType,
       company,
+      month: override ? req.body.month : null,
     });
   } catch (err) {
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);

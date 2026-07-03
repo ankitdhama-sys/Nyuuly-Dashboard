@@ -634,6 +634,37 @@ tr:hover td {
   flex-wrap: wrap;
 }
 
+.slot-month-row {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.slot-month-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.slot-month {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.slot-month-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
 .slot-form input[type="file"] {
   flex: 1;
   min-width: 200px;

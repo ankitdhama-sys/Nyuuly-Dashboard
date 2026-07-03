@@ -38,12 +38,13 @@ npm run dev
 - **Dashboard:** http://localhost:3000/
 - **Upload page:** http://localhost:3000/upload
 
-## Weekly Upload Workflow
+## Monthly Upload Workflow
 
-1. Export CSVs from Instagram/Meta Business Suite and Google Analytics 4
+1. In GA4, set the report date range to a single calendar month and export the User Acquisition, Pages & Screens, and Funnel CSVs. Repeat for each month (e.g. Jan–Jun 2026).
 2. Go to `/upload`, select the company (Nyuuly or WORK JAPAN)
-3. Upload each CSV file — type is auto-detected
-4. Visit `/` to see updated charts and tables
+3. For each GA4 slot, **pick the month the file covers** and upload it. The selected month overrides whatever date range is in the CSV header, so the data is stored as that whole calendar month. Upload one file per month.
+4. Social Media exports are dated automatically by each post's publish time — no month picker needed.
+5. Visit `/` to see updated charts and tables; use **Monthly** mode to compare months.
 
 Supported CSV types:
 - **Social Media Posts** — Instagram/Meta export

@@ -17,8 +17,8 @@
 
   <div class="upload-page upload-page-wide">
     <div class="upload-header">
-      <h1>Weekly Data Upload</h1>
-      <p>Upload all 4 CSV exports each week. Each section below is for one file type — the status badge shows whether it has been uploaded for the selected company.</p>
+      <h1>Monthly Data Upload</h1>
+      <p>Upload one CSV export per month for each file type. For the GA4 files, pick the month the file covers (e.g. upload Jan\u2013Jun 2026 one month at a time) so each month is stored as a clean calendar month for the Monthly comparison mode.</p>
 
       <div class="form-group upload-company-row">
         <label for="company">Company</label>
@@ -257,26 +257,30 @@
       {
         type: 'social',
         title: '1. Social Media Posts',
-        hint: 'Meta / social exports per account (Instagram, YouTube, Facebook, etc.) — Post ID, Views, Reach.',
+        hint: 'Meta / social exports per account (Instagram, YouTube, Facebook, etc.) — Post ID, Views, Reach. Dated automatically by each post\u2019s publish time.',
         accept: '.csv',
+        needsMonth: false,
       },
       {
         type: 'funnel',
         title: '2. Funnel Data (GA4)',
         hint: 'GA4 Funnel exploration export — Step, Device category, Active users.',
         accept: '.csv',
+        needsMonth: true,
       },
       {
         type: 'users',
         title: '3. User Acquisition (GA4)',
         hint: 'GA4 User acquisition report — First user primary channel group.',
         accept: '.csv',
+        needsMonth: true,
       },
       {
         type: 'pages',
         title: '4. Pages & Screens (GA4)',
         hint: 'GA4 Pages and screens report — Page path and screen class.',
         accept: '.csv',
+        needsMonth: true,
       },
     ];
 
@@ -324,6 +328,15 @@
           ? `<div class="slot-meta">${escapeHtml(info.filename)} · ${info.rowsAdded} rows · ${info.uploadedAt}</div>`
           : `<div class="slot-meta slot-meta-muted">${slot.hint}</div>`;
 
+        const monthField = slot.needsMonth
+          ? `<div class="slot-month-row">
+              <label>Month
+                <input type="month" class="slot-month" name="month" required>
+              </label>
+              <span class="slot-month-hint">One file per month. The file is stored as this whole calendar month \u2014 pick any month, past or current.</span>
+            </div>`
+          : '';
+
         return `
           <div class="upload-slot ${info.uploaded ? 'upload-slot-done' : ''}" data-type="${slot.type}">
             <div class="upload-slot-header">
@@ -332,12 +345,17 @@
             </div>
             ${meta}
             <form class="slot-form" data-type="${slot.type}">
+              ${monthField}
               <input type="file" name="file" accept="${slot.accept}" required>
               <button type="submit" class="btn-primary btn-slot">Upload ${formatType(slot.type)}</button>
             </form>
           </div>
         `;
       }).join('');
+
+      uploadSlots.querySelectorAll('.slot-month').forEach((el) => {
+        if (!el.value) el.value = defaultMonthValue();
+      });
 
       uploadSlots.querySelectorAll('.slot-form').forEach((form) => {
         form.addEventListener('submit', handleSlotUpload);
@@ -582,10 +600,15 @@
       const form = e.target;
       const type = form.dataset.type;
       const fileInput = form.querySelector('input[type="file"]');
+      const monthInput = form.querySelector('.slot-month');
       const btn = form.querySelector('button');
       const company = companySelect.value;
 
       if (!fileInput.files.length) return;
+      if (monthInput && !monthInput.value) {
+        showToast('Select the month this file covers', 'error');
+        return;
+      }
 
       btn.disabled = true;
       btn.textContent = 'Uploading...';
@@ -594,6 +617,7 @@
       formData.append('file', fileInput.files[0]);
       formData.append('company', company);
       formData.append('expectedType', type);
+      if (monthInput && monthInput.value) formData.append('month', monthInput.value);
 
       try {
         const res = await fetch('/api/upload', { method: 'POST', body: formData });
@@ -602,7 +626,8 @@
         if (!res.ok) {
           showToast(data.error || 'Upload failed', 'error');
         } else {
-          showToast(`${formatType(data.fileType)}: ${data.rowsAdded} rows added, ${data.rowsSkipped} skipped`);
+          const monthNote = data.month ? ` for ${data.month}` : '';
+          showToast(`${formatType(data.fileType)}${monthNote}: ${data.rowsAdded} rows added, ${data.rowsSkipped} skipped`);
           fileInput.value = '';
           await loadStatus();
           await loadHistory();
