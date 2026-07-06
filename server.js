@@ -55,7 +55,11 @@ const uploadLimiter = rateLimit({
   message: { error: 'Too many uploads. Max 40 per hour.' },
 });
 
-const MANUAL_FILE_TYPES = ['platform', 'applicants', 'geo', 'visa', 'nationality', 'barriers'];
+const MANUAL_FILE_TYPES = ['platform', 'applicants', 'geo', 'visa', 'nationality', 'barriers', 'social-channels'];
+
+const SOCIAL_CHANNELS = ['Facebook', 'Instagram', 'TikTok', 'YouTube'];
+const APP_DOWNLOAD_PLATFORMS = ['iOS', 'Android'];
+const PLATFORM_REG_PLATFORMS = ['Web', 'Android', 'iOS'];
 
 const MONTH_NAME_TO_NUM = {
   jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
@@ -749,6 +753,8 @@ const MONTH_KEY_SQL = {
   funnel_data: `substr(date_range, 1, 4) || '-' || substr(date_range, 5, 2)`,
   social_posts: `strftime('%Y-%m', publish_time)`,
   search_console_stats: `substr(start_date, 1, 7)`,
+  social_channel_views: `printf('%04d-%02d', year, month)`,
+  app_downloads: `printf('%04d-%02d', year, month)`,
   monthly: `printf('%04d-%02d', year, month)`,
 };
 
@@ -776,6 +782,8 @@ function getAvailableMonths(company) {
     `SELECT DISTINCT ${MONTH_KEY_SQL.funnel_data} AS mk FROM funnel_data ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.social_posts} AS mk FROM social_posts ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.search_console_stats} AS mk FROM search_console_stats ${co.clause}`,
+    `SELECT DISTINCT ${MONTH_KEY_SQL.social_channel_views} AS mk FROM social_channel_views ${co.clause}`,
+    `SELECT DISTINCT ${MONTH_KEY_SQL.app_downloads} AS mk FROM app_downloads ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.monthly} AS mk FROM platform_stats ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.monthly} AS mk FROM applicant_stats ${co.clause}`,
   ];
@@ -809,14 +817,7 @@ function monthlyKpisForMonth(company, monthKey) {
     WHERE ${coFilter} ${MONTH_KEY_SQL.social_posts} = ?
   `).get(...withCompany());
 
-  const users = db.prepare(`
-    SELECT
-      COALESCE(SUM(total_users), 0) AS totalUsers,
-      COALESCE(SUM(new_users), 0) AS newUsers,
-      COALESCE(SUM(returning_users), 0) AS returningUsers
-    FROM user_acquisition
-    WHERE ${coFilter} ${MONTH_KEY_SQL.user_acquisition} = ?
-  `).get(...withCompany());
+  const users = getWebsiteUsersKpisForMonth(company, monthKey);
 
   const pages = db.prepare(`
     SELECT
@@ -859,6 +860,20 @@ function monthlyKpisForMonth(company, monthKey) {
 
   const gscKpis = gscKpisFromRows(gscDaily);
 
+  const socialChannels = db.prepare(`
+    SELECT COALESCE(SUM(views), 0) AS socialChannelViews
+    FROM social_channel_views
+    WHERE ${coFilter} ${MONTH_KEY_SQL.social_channel_views} = ?
+  `).get(...withCompany());
+
+  const appDownloads = db.prepare(`
+    SELECT COALESCE(SUM(downloads), 0) AS appDownloads
+    FROM app_downloads
+    WHERE ${coFilter} ${MONTH_KEY_SQL.app_downloads} = ?
+  `).get(...withCompany());
+
+  const awarenessTotalViews = (gscKpis.impressions || 0) + (socialChannels?.socialChannelViews || 0);
+
   return {
     ...social,
     ...users,
@@ -866,10 +881,144 @@ function monthlyKpisForMonth(company, monthKey) {
     ...funnel,
     ...platform,
     ...applicants,
+    ...appDownloads,
     gscClicks: gscKpis.clicks,
     gscImpressions: gscKpis.impressions,
     gscCtr: gscKpis.ctr,
     gscAvgPosition: gscKpis.avgPosition,
+    socialChannelViews: socialChannels?.socialChannelViews || 0,
+    awarenessTotalViews,
+  };
+}
+
+function monthKeyToDateRange(monthKey) {
+  if (!monthKey || !/^\d{4}-\d{2}$/.test(monthKey)) return null;
+  const [y, m] = monthKey.split('-').map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  const mm = String(m).padStart(2, '0');
+  return {
+    start: `${y}-${mm}-01`,
+    end: `${y}-${mm}-${String(lastDay).padStart(2, '0')}`,
+  };
+}
+
+/** GA4 user totals for a calendar month — overlaps + prorates exports like /api/users. */
+function getWebsiteUsersKpisForMonth(company, monthKey) {
+  const range = monthKeyToDateRange(monthKey);
+  if (!range) return { totalUsers: 0, newUsers: 0, returningUsers: 0 };
+
+  const { clause, params } = buildGa4DateQuery(company, range.start, range.end);
+  const rawRows = db.prepare(`SELECT * FROM user_acquisition ${clause}`).all(...params);
+  const rows = prorateUsersRows(rawRows, range.start, range.end);
+  return usersKpisFromRows(rows);
+}
+
+function getWebsiteUsersForMonth(company, monthKey) {
+  return getWebsiteUsersKpisForMonth(company, monthKey).totalUsers;
+}
+
+function saveSocialChannelRow(company, parsedMonth, channel, views) {
+  db.prepare(`
+    INSERT OR REPLACE INTO social_channel_views
+    (company, month_label, year, month, channel, views)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    company,
+    parsedMonth.month_label,
+    parsedMonth.year,
+    parsedMonth.month,
+    channel,
+    parseNum(views)
+  );
+}
+
+function getSocialChannelViewsForMonth(company, monthKey) {
+  const coFilter = company && company !== 'all' ? 'company = ? AND' : '';
+  const params = company && company !== 'all' ? [company, monthKey] : [monthKey];
+
+  const total = db.prepare(`
+    SELECT COALESCE(SUM(views), 0) AS totalViews
+    FROM social_channel_views
+    WHERE ${coFilter} printf('%04d-%02d', year, month) = ?
+  `).get(...params);
+
+  const channels = db.prepare(`
+    SELECT channel, views
+    FROM social_channel_views
+    WHERE ${coFilter} printf('%04d-%02d', year, month) = ?
+    ORDER BY views DESC
+  `).all(...params);
+
+  return {
+    totalViews: total?.totalViews || 0,
+    channels,
+  };
+}
+
+function saveAppDownloadRow(company, parsedMonth, platform, downloads) {
+  db.prepare(`
+    INSERT OR REPLACE INTO app_downloads
+    (company, month_label, year, month, platform, downloads)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    company,
+    parsedMonth.month_label,
+    parsedMonth.year,
+    parsedMonth.month,
+    platform,
+    parseNum(downloads)
+  );
+}
+
+function getAppDownloadsForMonth(company, monthKey) {
+  const coFilter = company && company !== 'all' ? 'company = ? AND' : '';
+  const params = company && company !== 'all' ? [company, monthKey] : [monthKey];
+
+  const total = db.prepare(`
+    SELECT COALESCE(SUM(downloads), 0) AS totalDownloads
+    FROM app_downloads
+    WHERE ${coFilter} ${MONTH_KEY_SQL.app_downloads} = ?
+  `).get(...params);
+
+  const platforms = db.prepare(`
+    SELECT platform, downloads
+    FROM app_downloads
+    WHERE ${coFilter} ${MONTH_KEY_SQL.app_downloads} = ?
+    ORDER BY downloads DESC
+  `).all(...params);
+
+  return {
+    totalDownloads: total?.totalDownloads || 0,
+    platforms,
+  };
+}
+
+function getPlatformRegistrationsForMonth(company, monthKey) {
+  const parsed = parseMonthLabel(monthKey);
+  if (!parsed) return { totalRegistrations: 0, platforms: [] };
+
+  const coFilter = company && company !== 'all' ? 'company = ? AND' : '';
+  const params = company && company !== 'all' ? [company, parsed.year, parsed.month] : [parsed.year, parsed.month];
+
+  const rows = db.prepare(`
+    SELECT platform, registrations, active_users
+    FROM platform_stats
+    WHERE ${coFilter} year = ? AND month = ?
+  `).all(...params);
+
+  const platformMap = Object.fromEntries(
+    PLATFORM_REG_PLATFORMS.map((p) => [p, { platform: p, registrations: 0, active_users: 0 }])
+  );
+  for (const row of rows) {
+    if (platformMap[row.platform]) {
+      platformMap[row.platform].registrations = row.registrations || 0;
+      platformMap[row.platform].active_users = row.active_users || 0;
+    }
+  }
+  const platforms = PLATFORM_REG_PLATFORMS.map((p) => platformMap[p]);
+  return {
+    totalRegistrations: platforms.reduce((s, p) => s + p.registrations, 0),
+    platforms,
   };
 }
 
@@ -940,6 +1089,16 @@ function getManualDataStatus(company) {
     FROM barrier_stats WHERE company = ?
   `).get(company);
 
+  const socialChannelRows = db.prepare(`
+    SELECT COUNT(*) as count, MAX(month_label) as latestMonth, MAX(upload_date) as lastUpdated
+    FROM social_channel_views WHERE company = ?
+  `).get(company);
+
+  const appDownloadRows = db.prepare(`
+    SELECT COUNT(*) as count, MAX(month_label) as latestMonth, MAX(upload_date) as lastUpdated
+    FROM app_downloads WHERE company = ?
+  `).get(company);
+
   const statusBlock = (rows) => ({
     uploaded: rows.count > 0,
     rowsAdded: rows.count,
@@ -954,6 +1113,8 @@ function getManualDataStatus(company) {
     visa: statusBlock(visaRows),
     nationality: statusBlock(nationalityRows),
     barriers: statusBlock(barrierRows),
+    'social-channels': statusBlock(socialChannelRows),
+    'app-downloads': statusBlock(appDownloadRows),
   };
 }
 
@@ -1212,6 +1373,68 @@ app.post('/api/manual/platform', uploadLimiter, (req, res) => {
   }
 });
 
+app.post('/api/manual/social-channels', uploadLimiter, (req, res) => {
+  try {
+    const { company, month, channels } = req.body;
+    if (!company || !['nyuuly', 'workjapan'].includes(company)) {
+      return res.status(400).json({ error: 'Invalid company' });
+    }
+    if (!month) return res.status(400).json({ error: 'Month is required' });
+    if (!Array.isArray(channels) || !channels.length) {
+      return res.status(400).json({ error: 'At least one channel row is required' });
+    }
+
+    const parsedMonth = parseMonthLabel(month);
+    if (!parsedMonth) return res.status(400).json({ error: 'Invalid month format' });
+
+    let saved = 0;
+    for (const row of channels) {
+      if (!row.channel || !SOCIAL_CHANNELS.includes(row.channel)) continue;
+      if (row.views === '' || row.views == null) continue;
+      saveSocialChannelRow(company, parsedMonth, row.channel, row.views);
+      saved++;
+    }
+
+    if (!saved) return res.status(400).json({ error: 'No valid channel rows to save' });
+
+    logUpload(`Manual entry — ${parsedMonth.month_label}`, company, 'social-channels', saved, 0);
+    res.json({ success: true, rowsAdded: saved, month: parsedMonth.month_label, company });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/manual/app-downloads', uploadLimiter, (req, res) => {
+  try {
+    const { company, month, platforms } = req.body;
+    if (!company || !['nyuuly', 'workjapan'].includes(company)) {
+      return res.status(400).json({ error: 'Invalid company' });
+    }
+    if (!month) return res.status(400).json({ error: 'Month is required' });
+    if (!Array.isArray(platforms) || !platforms.length) {
+      return res.status(400).json({ error: 'At least one platform row is required' });
+    }
+
+    const parsedMonth = parseMonthLabel(month);
+    if (!parsedMonth) return res.status(400).json({ error: 'Invalid month format' });
+
+    let saved = 0;
+    for (const row of platforms) {
+      if (!row.platform || !APP_DOWNLOAD_PLATFORMS.includes(row.platform)) continue;
+      if (row.downloads === '' || row.downloads == null) continue;
+      saveAppDownloadRow(company, parsedMonth, row.platform, row.downloads);
+      saved++;
+    }
+
+    if (!saved) return res.status(400).json({ error: 'No valid platform rows to save' });
+
+    logUpload(`Manual entry — ${parsedMonth.month_label}`, company, 'app-downloads', saved, 0);
+    res.json({ success: true, rowsAdded: saved, month: parsedMonth.month_label, company });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/manual/applicants', uploadLimiter, (req, res) => {
   try {
     const { company, month, unique_applicants, screening_passes, total_applications,
@@ -1351,6 +1574,96 @@ app.get('/api/pages', (req, res) => {
   const rows = start && end ? proratePagesRows(rawRows, start, end) : rawRows;
 
   res.json({ rows, filter: { company, start, end } });
+});
+
+app.get('/api/social-channels/history', (req, res) => {
+  const { company } = req.query;
+  const months = getAvailableMonths(company).slice(-6);
+  const history = months.map((monthKey) => {
+    const data = getSocialChannelViewsForMonth(company, monthKey);
+    const channelMap = Object.fromEntries(SOCIAL_CHANNELS.map((c) => [c, 0]));
+    for (const row of data.channels) channelMap[row.channel] = row.views;
+    return {
+      month: monthKey,
+      label: monthKeyLabel(monthKey),
+      totalViews: data.totalViews,
+      channels: SOCIAL_CHANNELS.map((channel) => ({ channel, views: channelMap[channel] || 0 })),
+    };
+  });
+  res.json({ history, filter: { company } });
+});
+
+app.get('/api/users/history', (req, res) => {
+  const { company } = req.query;
+  const months = getAvailableMonths(company).slice(-6);
+  const history = months.map((monthKey) => ({
+    month: monthKey,
+    label: monthKeyLabel(monthKey),
+    totalUsers: getWebsiteUsersForMonth(company, monthKey),
+  }));
+  res.json({ history, filter: { company } });
+});
+
+app.get('/api/app-downloads/history', (req, res) => {
+  const { company } = req.query;
+  const months = getAvailableMonths(company).slice(-6);
+  const history = months.map((monthKey) => {
+    const data = getAppDownloadsForMonth(company, monthKey);
+    const platformMap = Object.fromEntries(APP_DOWNLOAD_PLATFORMS.map((p) => [p, 0]));
+    for (const row of data.platforms) platformMap[row.platform] = row.downloads;
+    return {
+      month: monthKey,
+      label: monthKeyLabel(monthKey),
+      totalDownloads: data.totalDownloads,
+      platforms: APP_DOWNLOAD_PLATFORMS.map((platform) => ({
+        platform,
+        downloads: platformMap[platform] || 0,
+      })),
+    };
+  });
+  res.json({ history, filter: { company } });
+});
+
+app.get('/api/platform-stats/history', (req, res) => {
+  const { company } = req.query;
+  const months = getAvailableMonths(company).slice(-6);
+  const history = months.map((monthKey) => {
+    const data = getPlatformRegistrationsForMonth(company, monthKey);
+    return {
+      month: monthKey,
+      label: monthKeyLabel(monthKey),
+      totalRegistrations: data.totalRegistrations,
+      platforms: data.platforms,
+    };
+  });
+  res.json({ history, filter: { company } });
+});
+
+app.get('/api/app-downloads', (req, res) => {
+  const { company, start, end } = req.query;
+  const monthKey = start?.slice(0, 7);
+  if (!monthKey) {
+    return res.json({ totalDownloads: 0, platforms: [], filter: { company, start, end } });
+  }
+  const data = getAppDownloadsForMonth(company, monthKey);
+  res.json({
+    ...data,
+    filter: { company, start, end, month: monthKey },
+  });
+});
+
+app.get('/api/social-channels', (req, res) => {
+  const { company, start, end } = req.query;
+  const monthKey = start?.slice(0, 7);
+  if (!monthKey) {
+    return res.json({ totalViews: 0, channels: [], kpis: { totalViews: 0 }, filter: { company, start, end } });
+  }
+  const data = getSocialChannelViewsForMonth(company, monthKey);
+  res.json({
+    ...data,
+    kpis: { totalViews: data.totalViews },
+    filter: { company, start, end, month: monthKey },
+  });
 });
 
 app.get('/api/platform-stats', (req, res) => {
@@ -1878,6 +2191,7 @@ app.get('/api/upload-status', (req, res) => {
       ...FILE_TYPE_LABELS,
       platform: 'Platform Registrations (Manual)',
       applicants: 'Job Seeker Applications (Manual)',
+      'social-channels': 'Social Channel Views (Manual)',
       geo: 'Audience Geography (Manual)',
       visa: 'Visa Intelligence (Manual)',
       nationality: 'Nationality Trends (Manual)',
@@ -1955,6 +2269,11 @@ app.get('/api/journeys', (req, res) => {
     };
 
     if (j.id === 'awareness') {
+      const monthKey = start?.slice(0, 7);
+      const socialChannels = monthKey ? getSocialChannelViewsForMonth(company, monthKey) : { totalViews: 0, channels: [] };
+      const gscImpressions = searchConsole.kpis.impressions || 0;
+      const awarenessTotalViews = gscImpressions + (socialChannels.totalViews || 0);
+
       return {
         ...base,
         kpis: {
@@ -1963,9 +2282,12 @@ app.get('/api/journeys', (req, res) => {
           socialEngagement: socialKpis.totalEngagement,
           postCount: socialKpis.postCount,
           gscClicks: searchConsole.kpis.clicks,
-          gscImpressions: searchConsole.kpis.impressions,
+          gscImpressions,
           gscCtr: searchConsole.kpis.ctr,
           gscAvgPosition: searchConsole.kpis.avgPosition,
+          socialChannelViews: socialChannels.totalViews || 0,
+          socialChannels: socialChannels.channels || [],
+          awarenessTotalViews,
         },
       };
     }
@@ -2167,7 +2489,7 @@ app.delete('/api/data', (req, res) => {
     return res.status(400).json({ error: 'Must pass confirm=yes' });
   }
 
-  const allowedTables = ['social_posts', 'funnel_data', 'traffic_acquisition', 'user_acquisition', 'pages_screens', 'search_console_stats', 'platform_stats', 'applicant_stats'];
+  const allowedTables = ['social_posts', 'funnel_data', 'traffic_acquisition', 'user_acquisition', 'pages_screens', 'search_console_stats', 'social_channel_views', 'app_downloads', 'platform_stats', 'applicant_stats'];
   if (!allowedTables.includes(table)) {
     return res.status(400).json({ error: 'Invalid table name' });
   }

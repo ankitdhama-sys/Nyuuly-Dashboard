@@ -31,18 +31,6 @@
   </div>
 
   <main class="main">
-    <section class="section guide-section" id="section-guide">
-      <div class="section-header" data-section="guide">
-        <h2 id="guideTitle">How to read this dashboard</h2>
-        <span class="collapse-icon">▼</span>
-      </div>
-      <div class="section-body">
-        <p class="guide-intro" id="guideIntro"></p>
-        <div class="guide-pillars" id="guidePillars"></div>
-        <div class="guide-legend" id="guideLegend"></div>
-      </div>
-    </section>
-
     <nav class="funnel-nav workjapan-only" id="funnelNav" aria-label="Job seeker funnel stages"></nav>
 
     <section class="section funnel-overview-section workjapan-only" id="section-funnel-overview">
@@ -66,36 +54,28 @@
 
     <section class="section" id="section-social">
       <div class="section-header" data-section="social">
-        <h2 class="section-title-wj">Social &amp; Content Performance</h2>
-        <h2 class="section-title-nyuuly">1. Social Media</h2>
+        <div class="section-title-wrap">
+          <h2 class="section-title-wj">Social &amp; Content Performance</h2>
+          <h2 class="section-title-nyuuly">1. Social Media</h2>
+          <span class="section-contribution" id="socialAwarenessContrib"></span>
+        </div>
         <span class="collapse-icon">▼</span>
       </div>
       <div class="section-body">
-        <p class="subsection-hint workjapan-only">Upload social CSV exports per platform (Instagram, YouTube, Facebook, etc.). Accounts are grouped by account name.</p>
+        <p class="subsection-hint">Enter monthly views per channel on the <a href="/upload">upload page</a> (Facebook, Instagram, TikTok, YouTube). Top posts come from the Social CSV for the selected month.</p>
         <div class="kpi-row" id="socialKpis"></div>
         <div class="chart-grid">
+          <div class="chart-container">
+            <div class="chart-header"><h3>Views by Platform — This Month</h3><button class="chart-download" data-chart="chartSocialPlatforms">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartSocialPlatforms"></canvas></div>
+          </div>
           <div class="chart-container full-width">
-            <div class="chart-header"><h3>Views &amp; Reach Over Time</h3><button class="chart-download" data-chart="chartViewsReach">PNG</button></div>
-            <div class="chart-wrapper"><canvas id="chartViewsReach"></canvas></div>
-          </div>
-          <div class="chart-container workjapan-only">
-            <div class="chart-header"><h3>Performance by Social Account</h3><button class="chart-download" data-chart="chartSocialAccounts">PNG</button></div>
-            <div class="chart-wrapper"><canvas id="chartSocialAccounts"></canvas></div>
-          </div>
-          <div class="chart-container">
-            <div class="chart-header"><h3>Top 10 Posts — Engagement</h3><button class="chart-download" data-chart="chartEngagement">PNG</button></div>
-            <div class="chart-wrapper"><canvas id="chartEngagement"></canvas></div>
-          </div>
-          <div class="chart-container">
-            <div class="chart-header"><h3>Post Type Distribution</h3><button class="chart-download" data-chart="chartPostTypes">PNG</button></div>
-            <div class="chart-wrapper"><canvas id="chartPostTypes"></canvas></div>
+            <div class="chart-header"><h3>Platform Views by Month</h3><button class="chart-download" data-chart="chartSocialPlatformsByMonth">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartSocialPlatformsByMonth"></canvas></div>
           </div>
         </div>
-        <h4 class="subsection-title workjapan-only">Social Accounts</h4>
-        <div class="table-wrap workjapan-only"><table id="socialAccountsTable"><thead></thead><tbody></tbody></table></div>
-        <h4 class="subsection-title">Top Performing Posts</h4>
-        <div class="table-wrap"><table id="socialTable"><thead></thead><tbody></tbody></table></div>
-        <div class="pagination" id="socialPagination"></div>
+        <h4 class="subsection-title">Top 10 Most Performing Content</h4>
+        <div class="table-wrap"><table id="topContentTable"><thead></thead><tbody></tbody></table></div>
       </div>
     </section>
 
@@ -128,6 +108,30 @@
       <div>
         <h2 class="funnel-stage-title">Consideration</h2>
         <p class="funnel-stage-question">Where do users come from, what do they browse, and where is the biggest drop-off?</p>
+      </div>
+    </div>
+    <div id="considerationAudience" class="consideration-audience workjapan-only">
+      <div class="consideration-hub-inner">
+        <div class="consideration-grid">
+          <div class="consideration-panel">
+            <h4>Website users (GA4)</h4>
+            <p class="subsection-hint">Total website users from the User Acquisition CSV — last 6 months.</p>
+            <div class="consideration-audience-kpi" id="considerationWebUsersKpi"></div>
+            <div class="chart-container consideration-chart">
+              <div class="chart-header"><h3>Total website users</h3><button class="chart-download" data-chart="chartConsiderationWebUsers">PNG</button></div>
+              <div class="chart-wrapper"><canvas id="chartConsiderationWebUsers"></canvas></div>
+            </div>
+          </div>
+          <div class="consideration-panel">
+            <h4>App store downloads</h4>
+            <p class="subsection-hint">Enter iOS and Android download counts on the <a href="/upload">upload page</a> — last 6 months.</p>
+            <div class="consideration-audience-kpi" id="considerationAppDownloadsKpi"></div>
+            <div class="chart-container consideration-chart">
+              <div class="chart-header"><h3>Downloads by platform</h3><button class="chart-download" data-chart="chartConsiderationAppDownloads">PNG</button></div>
+              <div class="chart-wrapper"><canvas id="chartConsiderationAppDownloads"></canvas></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     <div id="considerationInsights" class="consideration-hub workjapan-only"></div>

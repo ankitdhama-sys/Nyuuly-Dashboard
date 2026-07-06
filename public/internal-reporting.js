@@ -234,7 +234,7 @@
     const rangeLabel = filter?.start && filter?.end ? `${filter.start} → ${filter.end}` : 'Selected date range';
 
     root.innerHTML = `
-      <p class="ir-period-label">Reporting period: <strong>${rangeLabel}</strong> · ${report.allPagesCount || 0} pages from GA4 CSV</p>
+      <p class="ir-period-label">Reporting period: <strong>${rangeLabel}</strong> · ${rawReport.allPagesCount || 0} pages from GA4 CSV</p>
       ${renderKpiCards(kpis)}
       ${renderEditPanel(kpis, manualPeriod)}
       <div class="ir-section-block">

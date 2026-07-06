@@ -221,6 +221,30 @@ function initDb() {
       upload_date TEXT DEFAULT (date('now')),
       UNIQUE(company, start_date, end_date, dimension_type, dimension_value)
     );
+
+    CREATE TABLE IF NOT EXISTS social_channel_views (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      company TEXT NOT NULL,
+      month_label TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      month INTEGER NOT NULL,
+      channel TEXT NOT NULL,
+      views INTEGER DEFAULT 0,
+      upload_date TEXT DEFAULT (date('now')),
+      UNIQUE(company, month_label, channel)
+    );
+
+    CREATE TABLE IF NOT EXISTS app_downloads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      company TEXT NOT NULL,
+      month_label TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      month INTEGER NOT NULL,
+      platform TEXT NOT NULL,
+      downloads INTEGER DEFAULT 0,
+      upload_date TEXT DEFAULT (date('now')),
+      UNIQUE(company, month_label, platform)
+    );
   `);
 }
 

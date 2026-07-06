@@ -262,6 +262,31 @@ a:hover {
   font-weight: 600;
 }
 
+.section-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.section-contribution {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(255, 107, 53, 0.15);
+  color: #ffb899;
+  border: 1px solid rgba(255, 107, 53, 0.35);
+}
+
+.section-contribution.empty {
+  background: rgba(136, 146, 176, 0.12);
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
 .section-header .collapse-icon {
   color: var(--text-muted);
   transition: transform 0.2s;
@@ -701,6 +726,12 @@ tr:hover td {
 .upload-grid-done {
   color: #34d399;
   font-weight: 700;
+}
+
+.content-desc-cell {
+  max-width: 260px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
 }
 
 .gsc-page-cell {
@@ -1178,49 +1209,7 @@ body.is-loading .filter-label::after {
   background-clip: text;
 }
 
-/* Dashboard guide & funnel structure */
-.guide-intro {
-  font-size: 1rem;
-  line-height: 1.6;
-  color: var(--text);
-  margin-bottom: 1.25rem;
-}
-
-.guide-pillars {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.guide-pillar {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1rem;
-}
-
-.guide-pillar h4 {
-  margin: 0 0 0.5rem;
-  font-size: 0.9rem;
-  color: var(--workjapan);
-}
-
-.guide-pillar p {
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  line-height: 1.5;
-}
-
-.guide-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem 1.5rem;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-
+/* Funnel structure */
 .funnel-nav {
   display: flex;
   flex-wrap: wrap;
@@ -1455,6 +1444,7 @@ body.is-loading .filter-label::after {
 }
 
 /* Consideration hub */
+.consideration-audience,
 .consideration-hub {
   margin-bottom: 1.5rem;
 }
@@ -1463,6 +1453,68 @@ body.is-loading .filter-label::after {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+}
+
+.consideration-audience-kpi {
+  margin-bottom: 0.75rem;
+}
+
+.consideration-audience-period {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-bottom: 0.4rem;
+}
+
+.consideration-audience-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 0.85rem;
+  padding: 0.85rem 1rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.consideration-audience-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.consideration-audience-value {
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.consideration-audience-summary .kpi-delta {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.consideration-reg-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.consideration-reg-platform-title {
+  margin-top: 1.5rem;
+}
+
+.consideration-funnel-rates {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0 0 1rem;
+}
+
+.consideration-funnel-rates strong {
+  color: var(--text);
+  font-weight: 700;
 }
 
 .consideration-hero {

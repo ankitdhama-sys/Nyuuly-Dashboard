@@ -49,6 +49,60 @@
       <!-- filled by JS -->
     </div>
 
+    <div class="upload-slot entry-slot social-channels-slot" id="manualSocialChannelsSlot">
+      <div class="upload-slot-header">
+        <h3>Social Channel Views (Manual)</h3>
+        <span class="slot-badge slot-badge-pending" id="socialChannelsBadge">No data</span>
+      </div>
+      <p class="slot-meta slot-meta-muted">Enter total monthly views for each social channel. These feed the <strong>Awareness</strong> stage total together with Search Console impressions.</p>
+      <form class="entry-form" id="socialChannelsEntryForm">
+        <div class="entry-form-row">
+          <label for="socialChannelsMonth">Month</label>
+          <input type="month" id="socialChannelsMonth" name="month" required>
+        </div>
+        <div class="entry-table-wrap">
+          <table class="entry-table">
+            <thead>
+              <tr><th>Channel</th><th>Total Views</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Facebook</td><td><input type="number" id="socialFacebookViews" min="0" placeholder="0"></td></tr>
+              <tr><td>Instagram</td><td><input type="number" id="socialInstagramViews" min="0" placeholder="0"></td></tr>
+              <tr><td>TikTok</td><td><input type="number" id="socialTiktokViews" min="0" placeholder="0"></td></tr>
+              <tr><td>YouTube</td><td><input type="number" id="socialYoutubeViews" min="0" placeholder="0"></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <button type="submit" class="btn-primary btn-slot" id="socialChannelsSaveBtn">Save Social Channel Views</button>
+      </form>
+    </div>
+
+    <div class="upload-slot entry-slot app-downloads-slot" id="manualAppDownloadsSlot">
+      <div class="upload-slot-header">
+        <h3>App Store Downloads (Manual)</h3>
+        <span class="slot-badge slot-badge-pending" id="appDownloadsBadge">No data</span>
+      </div>
+      <p class="slot-meta slot-meta-muted">Enter total monthly app store downloads for iOS and Android. Shown in the <strong>Consideration</strong> stage on the dashboard.</p>
+      <form class="entry-form" id="appDownloadsEntryForm">
+        <div class="entry-form-row">
+          <label for="appDownloadsMonth">Month</label>
+          <input type="month" id="appDownloadsMonth" name="month" required>
+        </div>
+        <div class="entry-table-wrap">
+          <table class="entry-table">
+            <thead>
+              <tr><th>Platform</th><th>Total Downloads</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>iOS</td><td><input type="number" id="appDownloadsIos" min="0" placeholder="0"></td></tr>
+              <tr><td>Android</td><td><input type="number" id="appDownloadsAndroid" min="0" placeholder="0"></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <button type="submit" class="btn-primary btn-slot" id="appDownloadsSaveBtn">Save App Downloads</button>
+      </form>
+    </div>
+
     <div class="manual-upload-section" id="manualUploadSection">
       <h2>Manual Data Entry — WORK JAPAN</h2>
       <p>Enter monthly WORK JAPAN metrics below (separate from the 4 weekly GA4 / social CSV exports). Select a month, fill in the values, and save.</p>
@@ -317,6 +371,7 @@
         users: 'User Acquisition',
         pages: 'Pages & Screens',
         gsc: 'Search Console',
+        'social-channels': 'Social Channels',
         platform: 'Platform Registrations',
         applicants: 'Job Seeker Applications',
       };
@@ -450,7 +505,7 @@
 
     function initMonthInputs() {
       const val = defaultMonthValue();
-      ['platformMonth', 'applicantMonth', 'geoMonth', 'visaMonth', 'nationalityMonth', 'barriersMonth'].forEach((id) => {
+      ['platformMonth', 'applicantMonth', 'geoMonth', 'visaMonth', 'nationalityMonth', 'barriersMonth', 'socialChannelsMonth', 'appDownloadsMonth'].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.value = val;
       });
@@ -461,7 +516,29 @@
       document.getElementById('manualUploadSection').style.display = isWorkJapan ? '' : 'none';
     }
 
+    function updateSocialChannelsStatus(status) {
+      const info = status?.manualFiles?.['social-channels'] || { uploaded: false };
+      const badge = document.getElementById('socialChannelsBadge');
+      const slot = document.getElementById('manualSocialChannelsSlot');
+      if (!badge) return;
+      badge.className = `slot-badge ${info.uploaded ? 'slot-badge-done' : 'slot-badge-pending'}`;
+      badge.textContent = info.uploaded ? 'Saved' : 'No data';
+      slot?.classList.toggle('upload-slot-done', info.uploaded);
+    }
+
+    function updateAppDownloadsStatus(status) {
+      const info = status?.manualFiles?.['app-downloads'] || { uploaded: false };
+      const badge = document.getElementById('appDownloadsBadge');
+      const slot = document.getElementById('manualAppDownloadsSlot');
+      if (!badge) return;
+      badge.className = `slot-badge ${info.uploaded ? 'slot-badge-done' : 'slot-badge-pending'}`;
+      badge.textContent = info.uploaded ? 'Saved' : 'No data';
+      slot?.classList.toggle('upload-slot-done', info.uploaded);
+    }
+
     function updateManualStatus(status) {
+      updateSocialChannelsStatus(status);
+      updateAppDownloadsStatus(status);
       if (companySelect.value !== 'workjapan') return;
       const configs = [
         { type: 'platform', badgeId: 'platformBadge', metaId: 'platformMeta', slotId: 'manualPlatformSlot', label: 'platform rows' },
@@ -486,6 +563,127 @@
         if (meta && info.uploaded) {
           meta.textContent = `${info.rowsAdded} ${cfg.label} saved${info.latestMonth ? ` · latest: ${info.latestMonth}` : ''}${info.uploadedAt ? ` · updated ${info.uploadedAt}` : ''}`;
         }
+      }
+    }
+
+    async function loadSocialChannelsFormData() {
+      const month = document.getElementById('socialChannelsMonth').value;
+      if (!month) return;
+      const { start, end } = monthToRange(month);
+      const company = companySelect.value;
+      const ids = ['socialFacebookViews', 'socialInstagramViews', 'socialTiktokViews', 'socialYoutubeViews'];
+      ids.forEach((id) => { document.getElementById(id).value = ''; });
+
+      try {
+        const res = await fetch(`/api/social-channels?company=${company}&start=${start}&end=${end}`);
+        const data = await res.json();
+        const map = {
+          Facebook: 'socialFacebookViews',
+          Instagram: 'socialInstagramViews',
+          TikTok: 'socialTiktokViews',
+          YouTube: 'socialYoutubeViews',
+        };
+        for (const row of data.channels || []) {
+          const id = map[row.channel];
+          if (id) document.getElementById(id).value = row.views ?? '';
+        }
+      } catch (err) {
+        console.error('Failed to load social channel form data:', err);
+      }
+    }
+
+    async function handleSocialChannelsEntry(e) {
+      e.preventDefault();
+      const btn = document.getElementById('socialChannelsSaveBtn');
+      const month = document.getElementById('socialChannelsMonth').value;
+      const company = companySelect.value;
+      const channels = [
+        { channel: 'Facebook', views: document.getElementById('socialFacebookViews').value },
+        { channel: 'Instagram', views: document.getElementById('socialInstagramViews').value },
+        { channel: 'TikTok', views: document.getElementById('socialTiktokViews').value },
+        { channel: 'YouTube', views: document.getElementById('socialYoutubeViews').value },
+      ].filter((c) => c.views !== '');
+
+      if (!channels.length) {
+        showToast('Enter at least one channel view count', 'error');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+      try {
+        const res = await fetch('/api/manual/social-channels', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ company, month, channels }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Save failed');
+        showToast(`Social channel views saved for ${data.month}`);
+        await loadStatus();
+        await loadHistory();
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save Social Channel Views';
+      }
+    }
+
+    async function loadAppDownloadsFormData() {
+      const month = document.getElementById('appDownloadsMonth').value;
+      if (!month) return;
+      const { start, end } = monthToRange(month);
+      const company = companySelect.value;
+      document.getElementById('appDownloadsIos').value = '';
+      document.getElementById('appDownloadsAndroid').value = '';
+
+      try {
+        const res = await fetch(`/api/app-downloads?company=${company}&start=${start}&end=${end}`);
+        const data = await res.json();
+        const map = { iOS: 'appDownloadsIos', Android: 'appDownloadsAndroid' };
+        for (const row of data.platforms || []) {
+          const id = map[row.platform];
+          if (id) document.getElementById(id).value = row.downloads ?? '';
+        }
+      } catch (err) {
+        console.error('Failed to load app downloads form data:', err);
+      }
+    }
+
+    async function handleAppDownloadsEntry(e) {
+      e.preventDefault();
+      const btn = document.getElementById('appDownloadsSaveBtn');
+      const month = document.getElementById('appDownloadsMonth').value;
+      const company = companySelect.value;
+      const platforms = [
+        { platform: 'iOS', downloads: document.getElementById('appDownloadsIos').value },
+        { platform: 'Android', downloads: document.getElementById('appDownloadsAndroid').value },
+      ].filter((p) => p.downloads !== '');
+
+      if (!platforms.length) {
+        showToast('Enter at least one platform download count', 'error');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+      try {
+        const res = await fetch('/api/manual/app-downloads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ company, month, platforms }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Save failed');
+        showToast(`App downloads saved for ${data.month}`);
+        await loadStatus();
+        await loadHistory();
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save App Downloads';
       }
     }
 
@@ -794,12 +992,18 @@
     companySelect.addEventListener('change', () => {
       updateManualSectionVisibility();
       loadStatus();
+      loadSocialChannelsFormData();
+      loadAppDownloadsFormData();
       if (companySelect.value === 'workjapan') {
         loadPlatformFormData();
         loadApplicantFormData();
       }
     });
 
+    document.getElementById('socialChannelsMonth').addEventListener('change', loadSocialChannelsFormData);
+    document.getElementById('socialChannelsEntryForm').addEventListener('submit', handleSocialChannelsEntry);
+    document.getElementById('appDownloadsMonth').addEventListener('change', loadAppDownloadsFormData);
+    document.getElementById('appDownloadsEntryForm').addEventListener('submit', handleAppDownloadsEntry);
     document.getElementById('platformMonth').addEventListener('change', loadPlatformFormData);
     document.getElementById('applicantMonth').addEventListener('change', loadApplicantFormData);
     document.getElementById('platformEntryForm').addEventListener('submit', handlePlatformEntry);
@@ -814,6 +1018,8 @@
     renderSlots();
     loadStatus();
     loadHistory();
+    loadSocialChannelsFormData();
+    loadAppDownloadsFormData();
     loadPlatformFormData();
     loadApplicantFormData();
   </script>

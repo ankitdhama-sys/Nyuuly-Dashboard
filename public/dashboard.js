@@ -56,6 +56,15 @@ function deltaBadge(deltas, key) {
   return '<span class="kpi-delta kpi-delta-flat">0.0%</span>';
 }
 
+function deltaBadgeMoM(deltas, key) {
+  if (!deltas || !deltas[key]) return '';
+  const d = deltas[key].deltaPct;
+  if (d == null) return '<span class="kpi-delta kpi-delta-flat">— no prior month</span>';
+  if (d > 0) return `<span class="kpi-delta kpi-delta-up">▲ ${Math.abs(d).toFixed(1)}% vs last month</span>`;
+  if (d < 0) return `<span class="kpi-delta kpi-delta-down">▼ ${Math.abs(d).toFixed(1)}% vs last month</span>`;
+  return '<span class="kpi-delta kpi-delta-flat">0.0% vs last month</span>';
+}
+
 function monthToRange(monthVal) {
   if (!monthVal) return { start: null, end: null };
   const [y, m] = monthVal.split('-').map(Number);
@@ -178,10 +187,6 @@ function formatDelta(pct) {
   return `<span class="${cls}">${sign}${pct}% vs 6mo avg</span>`;
 }
 
-function renderMarkdownBold(text) {
-  return String(text || '').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-}
-
 function journeyById(journeys, id) {
   return journeys?.journeys?.find((j) => j.id === id);
 }
@@ -198,34 +203,6 @@ function updateCompanyLayout() {
     journeysTitle.textContent = isWj
       ? 'Customer Journey Deep Dive (optional detail)'
       : 'Customer Journeys';
-  }
-}
-
-function renderDashboardGuide(guide) {
-  if (!guide) return;
-  const title = document.getElementById('guideTitle');
-  const intro = document.getElementById('guideIntro');
-  const pillars = document.getElementById('guidePillars');
-  const legend = document.getElementById('guideLegend');
-  if (title) title.textContent = guide.title || 'How to read this dashboard';
-  if (intro) intro.innerHTML = renderMarkdownBold(guide.intro);
-  if (pillars) {
-    const extra = guide.pillars_extra || [];
-    const all = [...(guide.pillars || []), ...extra.map((p) => ({
-      title: p.label || p.title,
-      body: p.summary || p.body || p.note || '',
-    }))];
-    pillars.innerHTML = all.map((p) => `
-      <div class="guide-pillar">
-        <h4>${p.title}</h4>
-        <p>${p.body}</p>
-      </div>
-    `).join('');
-  }
-  if (legend) {
-    legend.innerHTML = (guide.dataLegend || []).map((d) => `
-      <span class="guide-legend-item"><strong>${d.label}</strong> — ${d.desc}</span>
-    `).join('');
   }
 }
 
@@ -259,9 +236,9 @@ function renderFunnelPipeline(journeys, platform, applicants, social, users, del
       anchor: 'stage-awareness',
       num: 1,
       label: 'Awareness',
-      value: formatNum(awareness?.kpis?.socialViews),
-      detail: `${formatNum(awareness?.kpis?.socialReach)} reach · ${formatNum(awareness?.kpis?.gscClicks)} organic clicks`,
-      deltaKey: 'socialViews',
+      value: formatNum(awareness?.kpis?.awarenessTotalViews),
+      detail: `${formatNum(awareness?.kpis?.gscImpressions)} GSC impressions · ${formatNum(awareness?.kpis?.socialChannelViews)} social views`,
+      deltaKey: 'awarenessTotalViews',
     },
     {
       anchor: 'stage-consideration',
@@ -309,92 +286,272 @@ function renderFunnelPipeline(journeys, platform, applicants, social, users, del
   `).join('');
 }
 
-function renderConsiderationRegistrationBlock(registrations, bridge) {
-  if (!registrations) {
-    return `
-      <div class="consideration-panel full-width consideration-registrations consideration-registrations-empty">
-        <h4>Web registrations (manual)</h4>
-        <p class="subsection-hint">Enter platform registrations on the <a href="/upload">upload page</a>. Counts are month-to-date from the 1st through the day you save.</p>
-      </div>`;
+const APP_DOWNLOAD_COLORS = {
+  iOS: '#A2AAAD',
+  Android: '#3DDC84',
+};
+
+function renderConsiderationAudienceCharts(usersHistory, appDownloadsHistory, deltas, monthly) {
+  renderConsiderationAudienceKpis(deltas, monthly);
+  renderChartConsiderationWebUsers(usersHistory?.history || []);
+  renderChartConsiderationAppDownloads(appDownloadsHistory?.history || []);
+}
+
+function renderConsiderationAudienceKpis(deltas, monthly) {
+  const periodBits = [];
+  if (monthly?.monthLabel) periodBits.push(`This month: ${monthly.monthLabel}`);
+  if (monthly?.prevMonthLabel) periodBits.push(`compared to ${monthly.prevMonthLabel}`);
+  const periodLine = periodBits.length
+    ? `<span class="consideration-audience-period">${periodBits.join(' · ')}</span>`
+    : '';
+
+  const webEl = document.getElementById('considerationWebUsersKpi');
+  if (webEl) {
+    const totalUsers = deltas?.totalUsers?.value ?? 0;
+    webEl.innerHTML = `
+      ${periodLine}
+      <div class="consideration-audience-summary">
+        <span class="consideration-audience-label">Total users</span>
+        <span class="consideration-audience-value">${formatNum(totalUsers)}</span>
+        ${deltaBadgeMoM(deltas, 'totalUsers')}
+      </div>
+    `;
   }
 
-  const bridgeRows = bridge ? [
-    { label: 'Job detail page users', value: bridge.jobDetailUsers, source: 'Pages CSV (dashboard date range)' },
-    { label: 'Register page users', value: bridge.registerPageUsers, source: 'Pages CSV' },
-    { label: 'Web registrations (actual)', value: bridge.webRegistrations, source: 'Manual upload', highlight: true },
-  ] : [];
+  const appEl = document.getElementById('considerationAppDownloadsKpi');
+  if (appEl) {
+    const totalDownloads = deltas?.appDownloads?.value ?? 0;
+    appEl.innerHTML = `
+      ${periodLine}
+      <div class="consideration-audience-summary">
+        <span class="consideration-audience-label">Total downloads</span>
+        <span class="consideration-audience-value">${formatNum(totalDownloads)}</span>
+        ${deltaBadgeMoM(deltas, 'appDownloads')}
+      </div>
+    `;
+  }
+}
+
+function renderChartConsiderationWebUsers(history) {
+  destroyChart('chartConsiderationWebUsers');
+  const ctx = document.getElementById('chartConsiderationWebUsers');
+  if (!ctx || !history?.length) return;
+
+  const labels = history.map((h) => h.label.replace(/^\d{4}\s/, ''));
+  const data = history.map((h) => h.totalUsers);
+  if (!data.some((v) => v > 0)) return;
+
+  charts.chartConsiderationWebUsers = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Total users',
+        data,
+        backgroundColor: '#4F8EF7',
+      }],
+    },
+    options: {
+      ...chartDefaults(),
+      plugins: { ...chartDefaults().plugins, legend: { display: false } },
+    },
+  });
+}
+
+function renderChartConsiderationAppDownloads(history) {
+  destroyChart('chartConsiderationAppDownloads');
+  const ctx = document.getElementById('chartConsiderationAppDownloads');
+  if (!ctx || !history?.length) return;
+
+  const labels = history.map((h) => h.label.replace(/^\d{4}\s/, ''));
+  const platforms = ['iOS', 'Android'];
+  const hasData = history.some((h) => h.platforms?.some((p) => p.downloads > 0));
+  if (!hasData) return;
+
+  charts.chartConsiderationAppDownloads = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: platforms.map((platform) => ({
+        label: platform,
+        data: history.map((h) => h.platforms.find((p) => p.platform === platform)?.downloads || 0),
+        backgroundColor: APP_DOWNLOAD_COLORS[platform],
+      })),
+    },
+    options: {
+      ...chartDefaults(),
+      scales: {
+        x: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
+        y: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
+      },
+    },
+  });
+}
+
+function renderConsiderationRegistrationBlockShell(registrations) {
+  const periodHint = registrations
+    ? `<strong>${registrations.monthLabel}</strong> · ${registrations.periodLabel}${registrations.isPartialMonth ? ` · <span class="partial-month-badge">Partial month (${registrations.daysInPeriod} of ${registrations.daysInMonth} days)</span>` : ''}`
+    : 'Enter platform registrations on the <a href="/upload">upload page</a>.';
 
   return `
     <div class="consideration-panel full-width consideration-registrations">
-      <h4>Web registrations — actual sign-ups (manual upload)</h4>
-      <p class="subsection-hint">
-        <strong>${registrations.monthLabel}</strong> · period: <strong>${registrations.periodLabel}</strong>
-        · saved ${registrations.uploadDate}
-        ${registrations.isPartialMonth ? `<span class="partial-month-badge">Partial month (${registrations.daysInPeriod} of ${registrations.daysInMonth} days)</span>` : ''}
-      </p>
-      <p class="registration-period-note">${registrations.periodNote}</p>
-      <div class="highlight-grid registration-kpis">
-        <div class="highlight-card registration-card-primary">
-          <div class="highlight-label">Web registrations</div>
-          <div class="highlight-value">${formatNum(registrations.webRegistrations)}</div>
-          <div class="highlight-sub">${registrations.periodLabel}</div>
-        </div>
-        <div class="highlight-card">
-          <div class="highlight-label">Web active users</div>
-          <div class="highlight-value">${formatNum(registrations.webActiveUsers)}</div>
-          <div class="highlight-sub">Same period</div>
-        </div>
-        <div class="highlight-card">
-          <div class="highlight-label">All platforms — registrations</div>
-          <div class="highlight-value">${formatNum(registrations.totalRegistrations)}</div>
-          <div class="highlight-sub">Web + Android + iOS</div>
-        </div>
-        ${bridge?.jobDetailToWebRate != null ? `
-        <div class="highlight-card">
-          <div class="highlight-label">Job detail → web sign-up</div>
-          <div class="highlight-value">${formatPct(bridge.jobDetailToWebRate)}</div>
-          <div class="highlight-sub">${formatNum(bridge.webRegistrations)} reg ÷ ${formatNum(bridge.jobDetailUsers)} job viewers</div>
-        </div>` : ''}
+      <h4>Registration funnel — Impressions to sign-ups</h4>
+      <p class="subsection-hint">${periodHint}</p>
+      <div id="considerationRegFunnelKpi"></div>
+      <div class="chart-container consideration-chart">
+        <div class="chart-header"><h3>Impressions → Users → Registrations</h3><button class="chart-download" data-chart="chartConsiderationRegFunnel">PNG</button></div>
+        <div class="chart-wrapper"><canvas id="chartConsiderationRegFunnel"></canvas></div>
       </div>
-      ${bridgeRows.length ? `
-        <h5 class="subsection-title">GA4 pages vs actual web registrations</h5>
-        <p class="subsection-hint">Pages CSV uses your dashboard date filter. Manual registrations use the month-to-date period above — periods may differ slightly.</p>
-        <div class="table-wrap"><table class="consideration-table">
-          <thead><tr><th>Metric</th><th>Count</th><th>Source</th></tr></thead>
-          <tbody>${bridgeRows.map((row) => `
-            <tr class="${row.highlight ? 'registration-row-actual' : ''}">
-              <td>${row.label}</td>
-              <td><strong>${formatNum(row.value)}</strong></td>
-              <td class="nav-hint">${row.source}</td>
-            </tr>
-          `).join('')}
-          ${bridge.registerPageUsers > 0 && bridge.webRegistrations > 0 ? `
-            <tr>
-              <td>Register page → web sign-up rate</td>
-              <td><strong>${formatPct(bridge.registerPageToWebRate)}</strong></td>
-              <td class="nav-hint">Actual reg ÷ register page users</td>
-            </tr>
-          ` : ''}
-          </tbody>
-        </table></div>
-      ` : ''}
-      <div class="table-wrap" style="margin-top:0.75rem">
-        <table class="consideration-table">
-          <thead><tr><th>Platform</th><th>Registrations (MTD)</th><th>Active users</th></tr></thead>
-          <tbody>${registrations.byPlatform.map((p) => `
-            <tr class="${p.platform === 'Web' ? 'registration-row-actual' : ''}">
-              <td>${p.platform}</td>
-              <td>${formatNum(p.registrations)}</td>
-              <td>${formatNum(p.active_users)}</td>
-            </tr>
-          `).join('')}</tbody>
-        </table>
+
+      <h4 class="subsection-title consideration-reg-platform-title">Registrations by platform</h4>
+      <p class="subsection-hint">Web, iOS, and Android sign-ups (manual upload) — last 6 months with month-over-month comparison.</p>
+      <div id="considerationPlatformRegKpi"></div>
+      <div class="chart-container consideration-chart">
+        <div class="chart-header"><h3>Registrations by platform</h3><button class="chart-download" data-chart="chartConsiderationPlatformRegs">PNG</button></div>
+        <div class="chart-wrapper"><canvas id="chartConsiderationPlatformRegs"></canvas></div>
       </div>
     </div>
   `;
 }
 
-function renderConsiderationInsights(consideration) {
+function platformRegDeltaBadge(current, previous) {
+  if (previous == null || previous === 0) {
+    return '<span class="kpi-delta kpi-delta-flat">— no prior month</span>';
+  }
+  const d = Math.round(((current - previous) / previous) * 1000) / 10;
+  if (d > 0) return `<span class="kpi-delta kpi-delta-up">▲ ${Math.abs(d).toFixed(1)}% vs last month</span>`;
+  if (d < 0) return `<span class="kpi-delta kpi-delta-down">▼ ${Math.abs(d).toFixed(1)}% vs last month</span>`;
+  return '<span class="kpi-delta kpi-delta-flat">0.0% vs last month</span>';
+}
+
+function renderConsiderationRegistrationCharts(regContext) {
+  if (!regContext) return;
+  const { funnelMetrics, platformHistory, deltas, monthly } = regContext;
+  const history = platformHistory?.history || [];
+
+  const funnelKpiEl = document.getElementById('considerationRegFunnelKpi');
+  if (funnelKpiEl && funnelMetrics) {
+    const { impressions, users, registrations } = funnelMetrics;
+    const impToUser = impressions > 0 ? formatPct((users / impressions) * 100) : '—';
+    const userToReg = users > 0 ? formatPct((registrations / users) * 100) : '—';
+    funnelKpiEl.innerHTML = `
+      <div class="consideration-reg-kpi-row">
+        <div class="consideration-audience-summary">
+          <span class="consideration-audience-label">Total impressions</span>
+          <span class="consideration-audience-value">${formatNum(impressions)}</span>
+          ${deltaBadgeMoM(deltas, 'awarenessTotalViews')}
+        </div>
+        <div class="consideration-audience-summary">
+          <span class="consideration-audience-label">Total users</span>
+          <span class="consideration-audience-value">${formatNum(users)}</span>
+          ${deltaBadgeMoM(deltas, 'totalUsers')}
+        </div>
+        <div class="consideration-audience-summary">
+          <span class="consideration-audience-label">Total registrations</span>
+          <span class="consideration-audience-value">${formatNum(registrations)}</span>
+          ${deltaBadgeMoM(deltas, 'registrations')}
+        </div>
+      </div>
+      <p class="consideration-funnel-rates">Impressions → users: <strong>${impToUser}</strong> · Users → registrations: <strong>${userToReg}</strong></p>
+    `;
+  }
+
+  const platformKpiEl = document.getElementById('considerationPlatformRegKpi');
+  if (platformKpiEl) {
+    const monthKey = state.month;
+    const idx = history.findIndex((h) => h.month === monthKey);
+    const currIdx = idx >= 0 ? idx : history.length - 1;
+    const curr = currIdx >= 0 ? history[currIdx] : null;
+    const prev = currIdx > 0 ? history[currIdx - 1] : null;
+    const platforms = ['Web', 'iOS', 'Android'];
+
+    const periodBits = [];
+    if (monthly?.monthLabel) periodBits.push(`This month: ${monthly.monthLabel}`);
+    if (monthly?.prevMonthLabel) periodBits.push(`compared to ${monthly.prevMonthLabel}`);
+
+    platformKpiEl.innerHTML = `
+      ${periodBits.length ? `<span class="consideration-audience-period">${periodBits.join(' · ')}</span>` : ''}
+      <div class="consideration-reg-kpi-row">
+        ${platforms.map((platform) => {
+          const currVal = curr?.platforms?.find((p) => p.platform === platform)?.registrations || 0;
+          const prevVal = prev?.platforms?.find((p) => p.platform === platform)?.registrations;
+          return `
+            <div class="consideration-audience-summary">
+              <span class="consideration-audience-label">${platform}</span>
+              <span class="consideration-audience-value">${formatNum(currVal)}</span>
+              ${platformRegDeltaBadge(currVal, prevVal)}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  renderChartConsiderationRegFunnel(funnelMetrics);
+  renderChartConsiderationPlatformRegs(history);
+}
+
+function renderChartConsiderationRegFunnel(funnelMetrics) {
+  destroyChart('chartConsiderationRegFunnel');
+  const ctx = document.getElementById('chartConsiderationRegFunnel');
+  if (!ctx || !funnelMetrics) return;
+
+  const steps = [
+    { label: 'Total impressions', value: funnelMetrics.impressions || 0 },
+    { label: 'Total users', value: funnelMetrics.users || 0 },
+    { label: 'Total registrations', value: funnelMetrics.registrations || 0 },
+  ];
+  if (!steps.some((s) => s.value > 0)) return;
+
+  charts.chartConsiderationRegFunnel = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: steps.map((s) => s.label),
+      datasets: [{
+        label: 'Count',
+        data: steps.map((s) => s.value),
+        backgroundColor: ['#4F8EF7', '#FF6B35', '#34d399'],
+      }],
+    },
+    options: {
+      ...chartDefaults(),
+      indexAxis: 'y',
+      plugins: { ...chartDefaults().plugins, legend: { display: false } },
+    },
+  });
+}
+
+function renderChartConsiderationPlatformRegs(history) {
+  destroyChart('chartConsiderationPlatformRegs');
+  const ctx = document.getElementById('chartConsiderationPlatformRegs');
+  if (!ctx || !history?.length) return;
+
+  const labels = history.map((h) => h.label.replace(/^\d{4}\s/, ''));
+  const platforms = ['Web', 'iOS', 'Android'];
+  const hasData = history.some((h) => h.platforms?.some((p) => p.registrations > 0));
+  if (!hasData) return;
+
+  charts.chartConsiderationPlatformRegs = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: platforms.map((platform) => ({
+        label: platform,
+        data: history.map((h) => h.platforms?.find((p) => p.platform === platform)?.registrations || 0),
+        backgroundColor: COLORS.platform[platform] || COLORS.workjapan,
+      })),
+    },
+    options: {
+      ...chartDefaults(),
+      scales: {
+        x: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
+        y: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
+      },
+    },
+  });
+}
+
+function renderConsiderationInsights(consideration, regContext) {
   const el = document.getElementById('considerationInsights');
   if (!el || state.company !== 'workjapan') return;
 
@@ -404,69 +561,32 @@ function renderConsiderationInsights(consideration) {
   if (!hasFunnel && !hasRegistrations) {
     el.innerHTML = `
       <div class="consideration-hub-inner">
+        ${renderConsiderationRegistrationBlockShell(null)}
         <div class="highlight-panel empty">
-          Upload the <strong>Pages CSV</strong> to see navigation paths and drop-offs, and enter
-          <strong>platform registrations</strong> on the <a href="/upload">upload page</a> for actual web sign-up counts.
+          Upload the <strong>Pages CSV</strong> and enter <strong>platform registrations</strong> on the <a href="/upload">upload page</a>.
         </div>
       </div>`;
+    renderConsiderationRegistrationCharts(regContext);
+    bindConsiderationChartDownloads(el);
     return;
   }
 
   if (!hasFunnel) {
     el.innerHTML = `
       <div class="consideration-hub-inner">
-        ${renderConsiderationRegistrationBlock(consideration.registrations, consideration.registrationBridge)}
-        <div class="highlight-panel empty">Upload the <strong>Pages CSV</strong> to add navigation paths and drop-off analysis.</div>
+        ${renderConsiderationRegistrationBlockShell(consideration.registrations)}
+        <div class="highlight-panel empty">Upload the <strong>Pages CSV</strong> to add navigation and landing page analysis.</div>
       </div>`;
+    renderConsiderationRegistrationCharts(regContext);
+    bindConsiderationChartDownloads(el);
     return;
   }
 
-  const biggest = consideration.biggestDropOff;
-  const topReason = biggest?.likelyReasons?.[0] || 'See ranked table below';
-  const reg = consideration.registrations;
-
   el.innerHTML = `
     <div class="consideration-hub-inner">
-      ${renderConsiderationRegistrationBlock(reg, consideration.registrationBridge)}
-
-      <div class="consideration-hero ${biggest?.dropOffPct > 30 ? 'consideration-hero-alert' : ''}">
-        <div class="consideration-hero-main">
-          <span class="consideration-hero-label">#1 drop-off in consideration (GA4 pages path)</span>
-          <h3 class="consideration-hero-title">${biggest ? `${biggest.fromLabel} → ${biggest.toLabel}` : '—'}</h3>
-          <p class="consideration-hero-stat">
-            <strong>${formatPct(biggest?.dropOffPct)}</strong> of users lost
-            (${formatNum(biggest?.usersLost)} users)
-          </p>
-          <p class="consideration-hero-why"><strong>Likely why:</strong> ${topReason}</p>
-        </div>
-        <div class="consideration-hero-meta">
-          ${reg ? `
-          <div class="consideration-stat-pill consideration-stat-pill-reg">
-            <span class="pill-label">Web registrations (actual)</span>
-            <span class="pill-value">${formatNum(reg.webRegistrations)} · ${reg.periodLabel}</span>
-          </div>` : ''}
-          <div class="consideration-stat-pill">
-            <span class="pill-label">Browse-only (est.)</span>
-            <span class="pill-value">${formatNum(consideration.estimatedBrowseOnly)} users (${formatPct(consideration.browseOnlyRate)})</span>
-          </div>
-          <div class="consideration-stat-pill">
-            <span class="pill-label">Funnel started</span>
-            <span class="pill-value">${formatNum(consideration.funnelStartUsers)} users on homepage</span>
-          </div>
-        </div>
-      </div>
+      ${renderConsiderationRegistrationBlockShell(consideration.registrations)}
 
       <div class="consideration-grid">
-        <div class="consideration-panel">
-          <h4>Consideration path — where users drop off</h4>
-          <p class="subsection-hint">Homepage → job listings → job detail. Each arrow shows users lost before the next step.</p>
-          ${renderConsiderationPathFunnel(consideration.considerationFunnel)}
-          <div class="chart-container consideration-chart">
-            <div class="chart-header"><h3>Users at each step</h3><button class="chart-download" data-chart="chartConsiderationFunnel">PNG</button></div>
-            <div class="chart-wrapper"><canvas id="chartConsiderationFunnel"></canvas></div>
-          </div>
-        </div>
-
         <div class="consideration-panel">
           <h4>Organic landing pages (Search Console)</h4>
           <p class="subsection-hint">Top pages receiving organic search clicks this month — upload GSC Performance zip on the <a href="/upload">upload page</a>.</p>
@@ -501,39 +621,6 @@ function renderConsiderationInsights(consideration) {
             </tbody>
           </table></div>
         </div>
-      </div>
-
-      <div class="consideration-panel full-width">
-        <h4>Drop-offs ranked — what to investigate</h4>
-        <div class="table-wrap"><table class="consideration-table dropoff-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Transition</th>
-              <th>Users lost</th>
-              <th>Drop-off</th>
-              <th>Likely why</th>
-              <th>What to check</th>
-            </tr>
-          </thead>
-          <tbody>${(consideration.dropOffs || []).map((d) => `
-            <tr class="${d.rank === 1 ? 'dropoff-row-top' : ''}">
-              <td>${d.rank}</td>
-              <td>
-                <div class="dropoff-transition">${d.fromLabel} → ${d.toLabel}</div>
-                <code class="dropoff-path">${d.fromPath} → ${d.toPath}</code>
-              </td>
-              <td>${formatNum(d.usersLost)}</td>
-              <td><span class="dropoff-pct ${d.dropOffPct > 30 ? 'abandon-red-text' : ''}">${formatPct(d.dropOffPct)}</span></td>
-              <td class="dropoff-reasons"><ul>${(d.likelyReasons || []).slice(0, 2).map((r) => `<li>${r}</li>`).join('')}</ul></td>
-              <td class="dropoff-checks"><ul>${(d.whatToCheck || []).map((c) => `<li>${c}</li>`).join('')}</ul></td>
-            </tr>
-          `).join('') || '<tr><td colspan="6" class="empty-state">No drop-off data</td></tr>'}
-          </tbody>
-        </table></div>
-        ${consideration.allDropOffs?.some((d) => d.stage === 'commit') ? `
-          <p class="journey-note">Register → dashboard drop-off is tracked in <a href="#stage-commit">Commit stage</a>.</p>
-        ` : ''}
       </div>
 
       <div class="consideration-panel full-width">
@@ -600,66 +687,16 @@ function renderConsiderationInsights(consideration) {
     </div>
   `;
 
-  renderChartConsiderationFunnel(consideration.considerationFunnel);
+  renderConsiderationRegistrationCharts(regContext);
+  bindConsiderationChartDownloads(el);
+}
 
-  el.querySelectorAll('.chart-download').forEach((btn) => {
+function bindConsiderationChartDownloads(el) {
+  el?.querySelectorAll('.chart-download').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       downloadChart(btn.dataset.chart);
     });
-  });
-}
-
-function renderConsiderationPathFunnel(steps) {
-  if (!steps?.length) return '';
-
-  return `<div class="path-funnel">${steps.map((step, i) => {
-    const next = steps[i + 1];
-    const arrow = next ? (() => {
-      const dropPct = next.dropOffPct || 0;
-      const usersLost = Math.max(0, (step.users || step.views || 0) - (next.users || next.views || 0));
-      const severity = dropPct > 30 ? 'path-arrow-red' : dropPct > 15 ? 'path-arrow-yellow' : 'path-arrow-green';
-      return `
-        <div class="path-arrow ${severity}">
-          <span class="path-arrow-label">−${formatPct(dropPct)}</span>
-          <span class="path-arrow-sub">${formatNum(usersLost)} users lost</span>
-        </div>`;
-    })() : '';
-
-    return `
-      <div class="path-step">
-        <div class="path-step-box">
-          <span class="path-step-num">${step.stepNum || i + 1}</span>
-          <div class="path-step-label">${step.label}</div>
-          <code class="path-step-path">${step.path}</code>
-          <div class="path-step-users">${formatNum(step.users || step.views)} users</div>
-          <div class="path-step-pct">${formatPct(step.pctOfStart)} of homepage</div>
-        </div>
-      </div>
-      ${arrow}
-    `;
-  }).join('')}</div>`;
-}
-
-function renderChartConsiderationFunnel(steps) {
-  destroyChart('chartConsiderationFunnel');
-  const ctx = document.getElementById('chartConsiderationFunnel');
-  if (!ctx || !steps?.length) return;
-
-  charts.chartConsiderationFunnel = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: steps.map((s) => s.label),
-      datasets: [{
-        label: 'Users',
-        data: steps.map((s) => s.users || s.views || 0),
-        backgroundColor: [COLORS.workjapan, '#ff9f6b', '#ffb088'],
-      }],
-    },
-    options: {
-      ...chartDefaults(),
-      indexAxis: 'y',
-    },
   });
 }
 
@@ -1177,10 +1214,19 @@ function renderJourneyPanel(data) {
     const isWj = data.company === 'workjapan';
     html += `
       <div class="kpi-row">
-        <div class="kpi-card"><div class="label">${isWj ? 'Instagram Post Views' : 'Social Views'}</div><div class="value">${formatNum(journey.kpis.socialViews)}</div></div>
-        <div class="kpi-card"><div class="label">${isWj ? 'Instagram Reach' : 'Social Reach'}</div><div class="value">${formatNum(journey.kpis.socialReach)}</div></div>
-        <div class="kpi-card"><div class="label">${isWj ? 'Job Posts' : 'Social Engagement'}</div><div class="value">${formatNum(isWj ? journey.kpis.postCount : journey.kpis.socialEngagement)}</div></div>
+        <div class="kpi-card"><div class="label">Total Awareness Views</div><div class="value">${formatNum(journey.kpis.awarenessTotalViews)}</div></div>
+        <div class="kpi-card"><div class="label">GSC Impressions</div><div class="value">${formatNum(journey.kpis.gscImpressions)}</div></div>
+        <div class="kpi-card"><div class="label">Social Channel Views</div><div class="value">${formatNum(journey.kpis.socialChannelViews)}</div></div>
+        <div class="kpi-card"><div class="label">${isWj ? 'CSV Social Views' : 'Social CSV Views'}</div><div class="value">${formatNum(journey.kpis.socialViews)}</div></div>
       </div>
+      <h4 class="subsection-title">Social channels (manual)</h4>
+      <div class="table-wrap"><table class="consideration-table">
+        <thead><tr><th>Channel</th><th>Views</th></tr></thead>
+        <tbody>${(journey.kpis.socialChannels || []).map((c) => `
+          <tr><td>${c.channel}</td><td>${formatNum(c.views)}</td></tr>
+        `).join('') || '<tr><td colspan="2" class="empty-state">Enter views on the <a href="/upload">upload page</a></td></tr>'}
+        </tbody>
+      </table></div>
     `;
   } else if (journey.id === 'browse-jobs' || journey.id === 'explore-no-action') {
     html += `
@@ -1487,18 +1533,130 @@ function renderGscQueriesTable(gsc) {
     : '<tr><td colspan="5" class="empty-state">No query data</td></tr>';
 }
 
-function renderSocialKpis(kpis, deltas) {
-  const el = document.getElementById('socialKpis');
-    if (!kpis || (kpis.totalViews === 0 && kpis.totalReach === 0 && kpis.totalLikes === 0)) {
-    el.innerHTML = '<div class="empty-state">No social data for this date range — <a href="/upload">upload a CSV</a></div>';
+const SOCIAL_PLATFORM_COLORS = {
+  Facebook: '#4267B2',
+  Instagram: '#E1306C',
+  TikTok: '#25F4EE',
+  YouTube: '#FF0000',
+};
+
+function renderSocialSectionContribution(journeys, deltas) {
+  const el = document.getElementById('socialAwarenessContrib');
+  if (!el) return;
+  const awareness = journeyById(journeys, 'awareness');
+  const socialViews = awareness?.kpis?.socialChannelViews || 0;
+  const total = awareness?.kpis?.awarenessTotalViews || 0;
+  if (!total || !socialViews) {
+    el.className = 'section-contribution empty';
+    el.textContent = 'No social data this month';
     return;
   }
+  const pct = Math.round((socialViews / total) * 1000) / 10;
+  el.className = 'section-contribution';
+  el.innerHTML = `${formatNum(socialViews)} views · ${pct}% of Awareness ${deltaBadge(deltas, 'socialChannelViews')}`;
+}
+
+function renderSocialKpis(socialChannels, socialCsv, deltas) {
+  const el = document.getElementById('socialKpis');
+  if (!el) return;
+
+  const channelMap = Object.fromEntries((socialChannels?.channels || []).map((c) => [c.channel, c.views]));
+  const manualTotal = socialChannels?.totalViews || 0;
+  const csvPosts = socialCsv?.posts?.length || 0;
+
+  if (!manualTotal && !csvPosts) {
+    el.innerHTML = '<div class="empty-state">No social data for this month — enter channel views on the <a href="/upload">upload page</a> or upload a Social CSV.</div>';
+    return;
+  }
+
   el.innerHTML = `
-    <div class="kpi-card"><div class="label">Total Views</div><div class="value">${formatNum(kpis.totalViews)}</div>${deltaBadge(deltas, 'socialViews')}</div>
-    <div class="kpi-card"><div class="label">Total Reach</div><div class="value">${formatNum(kpis.totalReach)}</div>${deltaBadge(deltas, 'socialReach')}</div>
-    <div class="kpi-card"><div class="label">Total Likes</div><div class="value">${formatNum(kpis.totalLikes)}</div></div>
-    <div class="kpi-card"><div class="label">Total Engagement</div><div class="value">${formatNum(kpis.totalEngagement)}</div>${deltaBadge(deltas, 'socialEngagement')}</div>
+    <div class="kpi-card"><div class="label">Total Social Views</div><div class="value">${formatNum(manualTotal)}</div>${deltaBadge(deltas, 'socialChannelViews')}</div>
+    <div class="kpi-card"><div class="label">Facebook</div><div class="value">${formatNum(channelMap.Facebook || 0)}</div></div>
+    <div class="kpi-card"><div class="label">Instagram</div><div class="value">${formatNum(channelMap.Instagram || 0)}</div></div>
+    <div class="kpi-card"><div class="label">TikTok</div><div class="value">${formatNum(channelMap.TikTok || 0)}</div></div>
+    <div class="kpi-card"><div class="label">YouTube</div><div class="value">${formatNum(channelMap.YouTube || 0)}</div></div>
+    ${csvPosts ? `<div class="kpi-card"><div class="label">CSV Posts</div><div class="value">${formatNum(csvPosts)}</div></div>` : ''}
   `;
+}
+
+function renderChartSocialPlatforms(channels) {
+  destroyChart('chartSocialPlatforms');
+  const ctx = document.getElementById('chartSocialPlatforms');
+  if (!ctx) return;
+
+  const labels = ['Facebook', 'Instagram', 'TikTok', 'YouTube'];
+  const channelMap = Object.fromEntries((channels || []).map((c) => [c.channel, c.views]));
+  const data = labels.map((l) => channelMap[l] || 0);
+
+  if (!data.some((v) => v > 0)) return;
+
+  charts.chartSocialPlatforms = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Views',
+        data,
+        backgroundColor: labels.map((l) => SOCIAL_PLATFORM_COLORS[l]),
+      }],
+    },
+    options: {
+      ...chartDefaults(),
+      plugins: { ...chartDefaults().plugins, legend: { display: false } },
+    },
+  });
+}
+
+function renderChartSocialPlatformsByMonth(history) {
+  destroyChart('chartSocialPlatformsByMonth');
+  const ctx = document.getElementById('chartSocialPlatformsByMonth');
+  if (!ctx || !history?.length) return;
+
+  const labels = history.map((h) => h.label.replace(/^\d{4}\s/, ''));
+  const platforms = ['Facebook', 'Instagram', 'TikTok', 'YouTube'];
+
+  charts.chartSocialPlatformsByMonth = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: platforms.map((platform) => ({
+        label: platform,
+        data: history.map((h) => h.channels.find((c) => c.channel === platform)?.views || 0),
+        backgroundColor: SOCIAL_PLATFORM_COLORS[platform],
+      })),
+    },
+    options: {
+      ...chartDefaults(),
+      scales: {
+        x: { stacked: false, ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
+        y: { stacked: false, ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
+      },
+    },
+  });
+}
+
+function renderTopContentTable(topPosts) {
+  const table = document.getElementById('topContentTable');
+  if (!table) return;
+  const thead = table.querySelector('thead');
+  const tbody = table.querySelector('tbody');
+  thead.innerHTML = '<tr><th>#</th><th>Account</th><th>Description</th><th>Type</th><th>Views</th><th>Reach</th><th>Engagement</th><th>Link</th></tr>';
+
+  const posts = (topPosts || []).slice(0, 10);
+  tbody.innerHTML = posts.length
+    ? posts.map((p, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${p.account_username || p.account_name || '—'}</td>
+        <td class="content-desc-cell">${(p.description || '—').slice(0, 80)}${(p.description || '').length > 80 ? '…' : ''}</td>
+        <td>${p.post_type || '—'}</td>
+        <td>${formatNum(p.views)}</td>
+        <td>${formatNum(p.reach)}</td>
+        <td>${formatNum(p.engagement || (p.likes + p.comments + p.shares + p.saves))}</td>
+        <td>${p.permalink ? `<a href="${p.permalink}" target="_blank" rel="noopener">Open ↗</a>` : '—'}</td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="8" class="empty-state">No posts in Social CSV for this month — upload on the <a href="/upload">upload page</a></td></tr>';
 }
 
 function renderUsersKpis(kpis, deltas) {
@@ -2082,6 +2240,8 @@ async function loadDashboard() {
       fetchJSON(`/api/dashboard-guide?company=${state.company}`),
       fetchJSON(`/api/search-console?${q}`),
       fetchJSON(`/api/monthly?${monthQ.toString()}`),
+      fetchJSON(`/api/social-channels?${q}`),
+      fetchJSON(`/api/social-channels/history?company=${state.company}`),
     ];
     if (isWorkJapan) {
       fetches.push(fetchJSON(`/api/platform-stats?${q}`));
@@ -2091,14 +2251,13 @@ async function loadDashboard() {
     }
 
     const results = await Promise.all(fetches);
-    const [social, funnel, users, pages, journeys, guide, gsc, monthly, platform, applicants, intelligence, internalReport] = isWorkJapan
+    const [social, funnel, users, pages, journeys, guide, gsc, monthly, socialChannels, socialChannelHistory, platform, applicants, intelligence, internalReport] = isWorkJapan
       ? results
-      : [...results.slice(0, 8), null, null, null, null];
+      : [...results.slice(0, 10), null, null, null, null];
 
     const deltas = monthly?.kpis || {};
 
     updateFilterLabel(journeys.filter || social.filter);
-    renderDashboardGuide(guide);
     renderFunnelNav(guide);
 
     renderGscKpis(gsc, deltas);
@@ -2106,8 +2265,26 @@ async function loadDashboard() {
     renderGscQueriesTable(gsc);
 
     if (isWorkJapan) {
+      const [usersHistory, appDownloadsHistory, platformRegHistory] = await Promise.all([
+        fetchJSON(`/api/users/history?company=${state.company}`),
+        fetchJSON(`/api/app-downloads/history?company=${state.company}`),
+        fetchJSON(`/api/platform-stats/history?company=${state.company}`),
+      ]);
+      const regContext = {
+        funnelMetrics: {
+          impressions: (gsc?.kpis?.impressions || 0) + (socialChannels?.totalViews || 0),
+          users: users?.kpis?.totalUsers || 0,
+          registrations: journeys.consideration?.registrations?.totalRegistrations
+            || platform?.kpis?.totalRegistrations
+            || 0,
+        },
+        platformHistory: platformRegHistory,
+        deltas,
+        monthly,
+      };
+      renderConsiderationAudienceCharts(usersHistory, appDownloadsHistory, deltas, monthly);
       renderFunnelPipeline(journeys, platform, applicants, social, users, deltas);
-      renderConsiderationInsights(journeys.consideration);
+      renderConsiderationInsights(journeys.consideration, regContext);
       if (typeof renderInternalReporting === 'function') {
         renderInternalReporting(internalReport);
       }
@@ -2140,18 +2317,11 @@ async function loadDashboard() {
     renderJourneyPanel(journeys);
     renderLandingTable(journeys.landingPages);
 
-    renderSocialKpis(social.kpis, deltas);
-    renderChartViewsReach(social.timeSeries || []);
-    renderChartEngagement(social.topPosts || []);
-    renderChartPostTypes(social.postTypes || []);
-    if (isWorkJapan) {
-      renderSocialAccountsTable(social.byAccount);
-      renderChartSocialAccounts(social.byAccount);
-    }
-
-    socialPosts = social.posts || [];
-    socialPage = 1;
-    renderSocialTable();
+    renderSocialSectionContribution(journeys, deltas);
+    renderSocialKpis(socialChannels, social, deltas);
+    renderChartSocialPlatforms(socialChannels?.channels || []);
+    renderChartSocialPlatformsByMonth(socialChannelHistory?.history || []);
+    renderTopContentTable(social.topPosts || []);
 
     funnelRows = funnel.rows || [];
     renderChartFunnel(funnelRows);
