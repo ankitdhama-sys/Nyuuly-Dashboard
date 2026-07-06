@@ -124,13 +124,14 @@ const WORKJAPAN_JOURNEYS = [
   },
 ];
 
-const FILE_TYPES = ['social', 'funnel', 'users', 'pages'];
+const FILE_TYPES = ['social', 'funnel', 'users', 'pages', 'gsc'];
 
 const FILE_TYPE_LABELS = {
   social: 'Social Media Posts',
   funnel: 'Funnel Data (GA4)',
   users: 'User Acquisition (GA4)',
   pages: 'Pages & Screens (GA4)',
+  gsc: 'Search Console (GSC)',
 };
 
 const LANDING_PAGE_PATHS = {
@@ -430,6 +431,7 @@ function buildConsiderationInsights({
   ga4Funnel,
   funnelEntryUsers,
   platformRows,
+  searchConsole,
 }) {
   const funnel = seekerFunnel || [];
   const funnelStart = funnel[0]?.users || funnel[0]?.views || funnelEntryUsers || 0;
@@ -587,6 +589,20 @@ function buildConsiderationInsights({
     funnelStartUsers: funnelStart,
     registrations,
     registrationBridge,
+    topGscPages: (searchConsole?.topPages || []).slice(0, 10).map((p) => ({
+      page: p.dimension_value,
+      clicks: p.clicks,
+      impressions: p.impressions,
+      ctr: p.ctr,
+      position: p.position,
+    })),
+    topGscQueries: (searchConsole?.topQueries || []).slice(0, 8).map((q) => ({
+      query: q.dimension_value,
+      clicks: q.clicks,
+      impressions: q.impressions,
+      ctr: q.ctr,
+      position: q.position,
+    })),
   };
 }
 

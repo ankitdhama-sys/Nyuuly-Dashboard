@@ -47,10 +47,17 @@ npm run dev
 5. Visit `/` to see updated charts and tables; use **Monthly** mode to compare months.
 
 Supported CSV types:
-- **Social Media Posts** — Instagram/Meta export
+- **Social Media Posts** — Instagram/Meta export (one file per month)
 - **Funnel Data** — GA4 Funnel Exploration export
 - **User Acquisition** — GA4 User Acquisition export (First user primary channel group)
 - **Pages & Screens** — GA4 Pages & Screens export
+- **Search Console** — GSC Performance zip export (must contain `Chart.csv`, `Queries.csv`, `Pages.csv`)
+
+## Dashboard — month-only view
+
+The dashboard shows **one calendar month at a time** (defaults to the latest uploaded month). Use the month dropdown to switch between months (e.g. Jan–Jun 2026). Every KPI includes a month-over-month change badge versus the previous month.
+
+Day-range filters (Last 7 / 30 / 90 days) are removed — upload whole-month files and pick the month on the dashboard.
 
 ## Railway Deployment
 
@@ -68,17 +75,31 @@ git push -u origin main
 2. Connect your GitHub repository
 3. Railway will auto-detect the Node.js project
 
-### 3. Add a Volume
+### 3. Add a Volume (required for permanent data)
 
-1. In Railway project settings, add a **Volume**
-2. Mount it at `/data`
+Uploaded CSVs and manual entries are stored in SQLite. **Without a volume, all data is lost when Railway redeploys.**
 
-### 4. Set environment variables
+**Option A — Railway dashboard**
+1. Open your service in the Railway project
+2. Right-click the canvas → **Add Volume** (or use ⌘K → "Add Volume")
+3. Attach it to your dashboard service
+4. Set mount path to **`/data`**
 
-| Variable | Value |
-|---|---|
-| `DATABASE_PATH` | `/data/analytics.db` |
-| `PORT` | (Railway sets this automatically) |
+**Option B — Railway CLI**
+```bash
+railway volume add --mount-path /data
+```
+
+When a volume is attached, Railway sets `RAILWAY_VOLUME_MOUNT_PATH` automatically. The app stores the database at **`/data/analytics.db`** — no extra env var needed.
+
+### 4. Set environment variables (optional)
+
+| Variable | Value | When |
+|---|---|---|
+| `DATABASE_PATH` | `/data/analytics.db` | Only if you use a custom mount path |
+| `PORT` | (Railway sets this automatically) | Always |
+
+If the volume is mounted at `/data`, you do **not** need to set `DATABASE_PATH` manually.
 
 ### 5. Deploy
 
@@ -98,7 +119,8 @@ Railway runs `node server.js` automatically. Visit your deployed URL:
 | GET | `/api/summary` | KPI summary |
 | GET | `/api/available-months` | Months (YYYY-MM) that have data |
 | GET | `/api/monthly` | Per-KPI totals for a month + change vs previous month |
-| GET | `/api/upload-history` | Recent uploads |
+| GET | `/api/search-console` | Search Console KPIs, daily chart, top queries/pages |
+| GET | `/api/upload-status-by-month` | Per-month upload grid (last 6 months) |
 | DELETE | `/api/data` | Clear data |
 
 ## Monthly comparison mode

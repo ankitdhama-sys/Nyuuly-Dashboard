@@ -665,6 +665,50 @@ tr:hover td {
   color: var(--text-muted);
 }
 
+.upload-month-grid-wrap {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.upload-month-grid-wrap h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.upload-grid-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  margin-top: 0.75rem;
+}
+
+.upload-grid-table th,
+.upload-grid-table td {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  text-align: center;
+}
+
+.upload-grid-table th:first-child,
+.upload-grid-table td:first-child {
+  text-align: left;
+  font-weight: 600;
+}
+
+.upload-grid-done {
+  color: #34d399;
+  font-weight: 700;
+}
+
+.gsc-page-cell {
+  max-width: 280px;
+  word-break: break-all;
+  font-size: 0.8rem;
+}
+
 .slot-form input[type="file"] {
   flex: 1;
   min-width: 200px;

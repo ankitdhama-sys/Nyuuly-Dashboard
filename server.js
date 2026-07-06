@@ -4,7 +4,8 @@ const fs = require('fs');
 const multer = require('multer');
 const rateLimit = require('express-rate-limit');
 const { parse } = require('csv-parse/sync');
-const { db, initDb } = require('./database/db');
+const AdmZip = require('adm-zip');
+const { db, initDb, dbPath, isRailway, isVolumeBacked } = require('./database/db');
 const {
   prorateUsersRows,
   proratePagesRows,
@@ -286,6 +287,116 @@ function monthRangeFromKey(month) {
     startDate: `${year}-${mm}-01`,
     endDate: `${year}-${mm}-${dd}`,
     dateRange: `${year}${mm}01-${year}${mm}${dd}`,
+  };
+}
+
+function parseGscPct(val) {
+  if (val == null || val === '') return 0;
+  const s = String(val).trim().replace('%', '');
+  const n = parseFloat(s);
+  if (Number.isNaN(n)) return 0;
+  return n > 1 ? n / 100 : n;
+}
+
+function zipEntryText(zip, name) {
+  const entry = zip.getEntries().find((e) => e.entryName === name || e.entryName.endsWith(`/${name}`));
+  if (!entry) return null;
+  return entry.getData().toString('utf8');
+}
+
+function parseGscZip(buffer, company, override) {
+  if (!override?.startDate || !override?.endDate) {
+    throw new Error('Month is required for Search Console uploads');
+  }
+
+  const zip = new AdmZip(buffer);
+  const chartText = zipEntryText(zip, 'Chart.csv');
+  const queriesText = zipEntryText(zip, 'Queries.csv');
+  const pagesText = zipEntryText(zip, 'Pages.csv');
+
+  if (!chartText || !queriesText || !pagesText) {
+    throw new Error('Zip must contain Chart.csv, Queries.csv, and Pages.csv');
+  }
+
+  const { startDate, endDate } = override;
+
+  db.prepare(`
+    DELETE FROM search_console_stats
+    WHERE company = ? AND start_date = ? AND end_date = ?
+  `).run(company, startDate, endDate);
+
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO search_console_stats
+    (company, start_date, end_date, dimension_type, dimension_value, clicks, impressions, ctr, position)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  let added = 0;
+  let skipped = 0;
+
+  const insertRows = (rows, dimensionType, valueKey) => {
+    for (const row of rows) {
+      const value = row[valueKey] || row[Object.keys(row).find((k) => k.toLowerCase().includes(valueKey.toLowerCase()))];
+      if (!value) continue;
+      const result = stmt.run(
+        company,
+        startDate,
+        endDate,
+        dimensionType,
+        String(value),
+        parseNum(row.Clicks),
+        parseNum(row.Impressions),
+        parseGscPct(row.CTR),
+        parseNum(row.Position)
+      );
+      if (result.changes > 0) added++;
+      else skipped++;
+    }
+  };
+
+  insertRows(parse(chartText, { columns: true, skip_empty_lines: true, bom: true }), 'daily', 'Date');
+  insertRows(parse(queriesText, { columns: true, skip_empty_lines: true, bom: true }), 'query', 'Top queries');
+  insertRows(parse(pagesText, { columns: true, skip_empty_lines: true, bom: true }), 'page', 'Top pages');
+
+  return { added, skipped };
+}
+
+function gscKpisFromRows(dailyRows) {
+  let clicks = 0;
+  let impressions = 0;
+  let posWeighted = 0;
+  for (const row of dailyRows) {
+    clicks += row.clicks || 0;
+    impressions += row.impressions || 0;
+    posWeighted += (row.position || 0) * (row.impressions || 0);
+  }
+  return {
+    clicks,
+    impressions,
+    ctr: impressions > 0 ? clicks / impressions : 0,
+    avgPosition: impressions > 0 ? Math.round((posWeighted / impressions) * 100) / 100 : 0,
+  };
+}
+
+function getSearchConsolePayload(company, start, end) {
+  const coFilter = company && company !== 'all' ? 'company = ? AND' : '';
+  const params = company && company !== 'all' ? [company, start, end] : [start, end];
+
+  const rows = db.prepare(`
+    SELECT * FROM search_console_stats
+    WHERE ${coFilter} start_date = ? AND end_date = ?
+  `).all(...params);
+
+  const daily = rows.filter((r) => r.dimension_type === 'daily').sort((a, b) => a.dimension_value.localeCompare(b.dimension_value));
+  const topQueries = rows.filter((r) => r.dimension_type === 'query').sort((a, b) => b.clicks - a.clicks).slice(0, 15);
+  const topPages = rows.filter((r) => r.dimension_type === 'page').sort((a, b) => b.clicks - a.clicks).slice(0, 15);
+
+  return {
+    kpis: gscKpisFromRows(daily),
+    daily,
+    topQueries,
+    topPages,
+    hasData: rows.length > 0,
   };
 }
 
@@ -637,6 +748,7 @@ const MONTH_KEY_SQL = {
   pages_screens: `substr(start_date, 1, 7)`,
   funnel_data: `substr(date_range, 1, 4) || '-' || substr(date_range, 5, 2)`,
   social_posts: `strftime('%Y-%m', publish_time)`,
+  search_console_stats: `substr(start_date, 1, 7)`,
   monthly: `printf('%04d-%02d', year, month)`,
 };
 
@@ -663,6 +775,7 @@ function getAvailableMonths(company) {
     `SELECT DISTINCT ${MONTH_KEY_SQL.pages_screens} AS mk FROM pages_screens ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.funnel_data} AS mk FROM funnel_data ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.social_posts} AS mk FROM social_posts ${co.clause}`,
+    `SELECT DISTINCT ${MONTH_KEY_SQL.search_console_stats} AS mk FROM search_console_stats ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.monthly} AS mk FROM platform_stats ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.monthly} AS mk FROM applicant_stats ${co.clause}`,
   ];
@@ -738,7 +851,26 @@ function monthlyKpisForMonth(company, monthKey) {
     WHERE ${coFilter} ${MONTH_KEY_SQL.monthly} = ?
   `).get(...withCompany());
 
-  return { ...social, ...users, ...pages, ...funnel, ...platform, ...applicants };
+  const gscDaily = db.prepare(`
+    SELECT clicks, impressions, position
+    FROM search_console_stats
+    WHERE ${coFilter} ${MONTH_KEY_SQL.search_console_stats} = ? AND dimension_type = 'daily'
+  `).all(...withCompany());
+
+  const gscKpis = gscKpisFromRows(gscDaily);
+
+  return {
+    ...social,
+    ...users,
+    ...pages,
+    ...funnel,
+    ...platform,
+    ...applicants,
+    gscClicks: gscKpis.clicks,
+    gscImpressions: gscKpis.impressions,
+    gscCtr: gscKpis.ctr,
+    gscAvgPosition: gscKpis.avgPosition,
+  };
 }
 
 function savePlatformRow(company, parsedMonth, platform, registrations, activeUsers) {
@@ -911,6 +1043,54 @@ function pctChange(current, average) {
   return Math.round(((current - average) / average) * 1000) / 10;
 }
 
+function hasDataForMonth(company, fileType, monthKey) {
+  const co = company && company !== 'all' ? 'company = ? AND' : '';
+  const baseParams = company && company !== 'all' ? [company] : [];
+
+  switch (fileType) {
+    case 'users':
+      return db.prepare(`
+        SELECT COUNT(*) AS c FROM user_acquisition
+        WHERE ${co} ${MONTH_KEY_SQL.user_acquisition} = ?
+      `).get(...baseParams, monthKey).c > 0;
+    case 'pages':
+      return db.prepare(`
+        SELECT COUNT(*) AS c FROM pages_screens
+        WHERE ${co} ${MONTH_KEY_SQL.pages_screens} = ?
+      `).get(...baseParams, monthKey).c > 0;
+    case 'funnel':
+      return db.prepare(`
+        SELECT COUNT(*) AS c FROM funnel_data
+        WHERE ${co} ${MONTH_KEY_SQL.funnel_data} = ?
+      `).get(...baseParams, monthKey).c > 0;
+    case 'social':
+      return db.prepare(`
+        SELECT COUNT(*) AS c FROM social_posts
+        WHERE ${co} ${MONTH_KEY_SQL.social_posts} = ?
+      `).get(...baseParams, monthKey).c > 0;
+    case 'gsc':
+      return db.prepare(`
+        SELECT COUNT(*) AS c FROM search_console_stats
+        WHERE ${co} ${MONTH_KEY_SQL.search_console_stats} = ?
+      `).get(...baseParams, monthKey).c > 0;
+    default:
+      return false;
+  }
+}
+
+function getUploadStatusByMonth(company) {
+  const allMonths = getAvailableMonths(company);
+  const months = allMonths.length > 6 ? allMonths.slice(-6) : allMonths;
+  const grid = {};
+  for (const monthKey of months) {
+    grid[monthKey] = {};
+    for (const type of FILE_TYPES) {
+      grid[monthKey][type] = hasDataForMonth(company, type, monthKey);
+    }
+  }
+  return { months, grid };
+}
+
 // --- Routes ---
 
 app.get('/upload', (req, res) => {
@@ -929,6 +1109,34 @@ app.post('/api/upload', uploadLimiter, upload.single('file'), (req, res) => {
     const expectedType = req.body.expectedType;
     if (expectedType && !FILE_TYPES.includes(expectedType) && !MANUAL_FILE_TYPES.includes(expectedType)) {
       return res.status(400).json({ error: 'Invalid expected file type' });
+    }
+
+    const isZip = req.file.originalname.toLowerCase().endsWith('.zip') || expectedType === 'gsc';
+
+    if (isZip) {
+      if (expectedType && expectedType !== 'gsc') {
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ error: 'Zip uploads are only supported for Search Console (gsc).' });
+      }
+
+      const override = req.body.month ? monthRangeFromKey(req.body.month) : null;
+      if (!override) {
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ error: 'Month is required for Search Console uploads. Use format YYYY-MM.' });
+      }
+
+      const buffer = fs.readFileSync(req.file.path);
+      const { added, skipped } = parseGscZip(buffer, company, override);
+      logUpload(req.file.originalname, company, 'gsc', added, skipped);
+      fs.unlinkSync(req.file.path);
+
+      return res.json({
+        rowsAdded: added,
+        rowsSkipped: skipped,
+        fileType: 'gsc',
+        company,
+        month: req.body.month,
+      });
     }
 
     const content = fs.readFileSync(req.file.path, 'utf-8');
@@ -1610,6 +1818,26 @@ app.get('/api/upload-history', (req, res) => {
   res.json({ history, lastUpdated });
 });
 
+app.get('/api/upload-status-by-month', (req, res) => {
+  const company = req.query.company || 'nyuuly';
+  if (!['nyuuly', 'workjapan'].includes(company)) {
+    return res.status(400).json({ error: 'Invalid company' });
+  }
+  res.json(getUploadStatusByMonth(company));
+});
+
+app.get('/api/search-console', (req, res) => {
+  const { company, start, end } = req.query;
+  if (!start || !end) {
+    return res.status(400).json({ error: 'start and end are required' });
+  }
+  const payload = getSearchConsolePayload(company, start, end);
+  res.json({
+    ...payload,
+    filter: { company, start, end },
+  });
+});
+
 app.get('/api/upload-status', (req, res) => {
   const company = req.query.company || 'nyuuly';
   if (!['nyuuly', 'workjapan'].includes(company)) {
@@ -1674,6 +1902,8 @@ app.get('/api/journeys', (req, res) => {
     FROM social_posts ${socialQ.clause}
   `).get(...socialQ.params);
 
+  const searchConsole = getSearchConsolePayload(company, start, end);
+
   const rawUserRows = db.prepare(`
     SELECT * FROM user_acquisition ${ga4Q.clause} ORDER BY total_users DESC
   `).all(...ga4Q.params);
@@ -1732,6 +1962,10 @@ app.get('/api/journeys', (req, res) => {
           socialReach: socialKpis.totalReach,
           socialEngagement: socialKpis.totalEngagement,
           postCount: socialKpis.postCount,
+          gscClicks: searchConsole.kpis.clicks,
+          gscImpressions: searchConsole.kpis.impressions,
+          gscCtr: searchConsole.kpis.ctr,
+          gscAvgPosition: searchConsole.kpis.avgPosition,
         },
       };
     }
@@ -1882,6 +2116,7 @@ app.get('/api/journeys', (req, res) => {
     funnel: funnelRows.length > 0,
     users: usersKpis.totalUsers > 0,
     pages: pages.length > 0,
+    gsc: searchConsole.hasData,
   };
 
   const landingPages = getLandingPages(pages, journeyCompany);
@@ -1908,6 +2143,7 @@ app.get('/api/journeys', (req, res) => {
         ga4Funnel,
         funnelEntryUsers,
         platformRows,
+        searchConsole,
       })
     : null;
 
@@ -1915,6 +2151,7 @@ app.get('/api/journeys', (req, res) => {
     journeys,
     landingPages,
     consideration,
+    searchConsole,
     dataCompleteness,
     completenessCount: Object.values(dataCompleteness).filter(Boolean).length,
     company: journeyCompany,
@@ -1930,7 +2167,7 @@ app.delete('/api/data', (req, res) => {
     return res.status(400).json({ error: 'Must pass confirm=yes' });
   }
 
-  const allowedTables = ['social_posts', 'funnel_data', 'traffic_acquisition', 'user_acquisition', 'pages_screens', 'platform_stats', 'applicant_stats'];
+  const allowedTables = ['social_posts', 'funnel_data', 'traffic_acquisition', 'user_acquisition', 'pages_screens', 'search_console_stats', 'platform_stats', 'applicant_stats'];
   if (!allowedTables.includes(table)) {
     return res.status(400).json({ error: 'Invalid table name' });
   }
@@ -1946,4 +2183,5 @@ app.delete('/api/data', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Analytics dashboard running on http://localhost:${PORT}`);
+  console.log(`Database: ${dbPath}${isVolumeBacked ? ' (persistent volume)' : isRailway ? ' (WARNING: not on a volume — data may be lost on redeploy)' : ' (local)'}`);
 });

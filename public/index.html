@@ -22,21 +22,9 @@
       <button class="tab-btn" data-company="nyuuly">Nyuuly</button>
       <button class="tab-btn active" data-company="workjapan">WORK JAPAN</button>
     </div>
-    <div class="tab-group" id="modeGroup">
-      <button class="tab-btn active" data-mode="range">Day Range</button>
-      <button class="tab-btn" data-mode="month">Monthly</button>
-    </div>
-    <div class="date-group" id="dateGroup">
-      <button class="tab-btn" data-range="7">Last 7 Days</button>
-      <button class="tab-btn" data-range="30">Last 30 Days</button>
-      <button class="tab-btn active" data-range="90">Last 3 Months</button>
-      <button class="tab-btn" data-range="custom">Custom Range</button>
-      <input type="date" id="startDate" style="display:none">
-      <input type="date" id="endDate" style="display:none">
-    </div>
-    <select id="monthSelect" class="month-select" style="display:none"></select>
+    <select id="monthSelect" class="month-select"></select>
     <div class="filter-label" id="filterLabel">Loading filters…</div>
-    <div class="data-status" id="dataStatus" title="Weekly CSV upload status">
+    <div class="data-status" id="dataStatus" title="Monthly CSV upload status">
       <span class="data-status-label">Data files:</span>
       <span id="dataStatusDots">—</span>
     </div>
@@ -108,6 +96,30 @@
         <h4 class="subsection-title">Top Performing Posts</h4>
         <div class="table-wrap"><table id="socialTable"><thead></thead><tbody></tbody></table></div>
         <div class="pagination" id="socialPagination"></div>
+      </div>
+    </section>
+
+    <section class="section" id="section-gsc-awareness">
+      <div class="section-header" data-section="gsc-awareness">
+        <h2 class="section-title-wj">Organic Search — Google Search Console</h2>
+        <h2 class="section-title-nyuuly">Organic Search — Google Search Console</h2>
+        <span class="collapse-icon">▼</span>
+      </div>
+      <div class="section-body">
+        <p class="subsection-hint">Upload the GSC Performance zip each month on the <a href="/upload">upload page</a>. Shows organic clicks, impressions, and top queries for the selected month.</p>
+        <div class="kpi-row" id="gscKpis"></div>
+        <div class="chart-grid">
+          <div class="chart-container full-width">
+            <div class="chart-header"><h3>Daily Organic Clicks &amp; Impressions</h3><button class="chart-download" data-chart="chartGscDaily">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartGscDaily"></canvas></div>
+          </div>
+          <div class="chart-container">
+            <div class="chart-header"><h3>Top Search Queries</h3><button class="chart-download" data-chart="chartGscQueries">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartGscQueries"></canvas></div>
+          </div>
+        </div>
+        <h4 class="subsection-title">Top Queries</h4>
+        <div class="table-wrap"><table id="gscQueriesTable"><thead></thead><tbody></tbody></table></div>
       </div>
     </section>
 

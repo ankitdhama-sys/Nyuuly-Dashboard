@@ -15,13 +15,9 @@ const COLORS = {
 const charts = {};
 let state = {
   company: 'workjapan',
-  dateRange: '90',
-  startDate: null,
-  endDate: null,
-  activeJourney: 'awareness',
-  mode: 'range',
   month: null,
   availableMonths: [],
+  activeJourney: 'awareness',
 };
 
 let journeyData = null;
@@ -50,14 +46,32 @@ function formatPct(n) {
   return val.toFixed(1) + '%';
 }
 
-/** Returns a month-over-month delta badge for the given metric key, or '' when not in monthly mode. */
+/** Returns a month-over-month delta badge for the given metric key. */
 function deltaBadge(deltas, key) {
-  if (state.mode !== 'month' || !deltas || !deltas[key]) return '';
+  if (!deltas || !deltas[key]) return '';
   const d = deltas[key].deltaPct;
   if (d == null) return '<span class="kpi-delta kpi-delta-flat">— no prev</span>';
   if (d > 0) return `<span class="kpi-delta kpi-delta-up">▲ ${Math.abs(d).toFixed(1)}%</span>`;
   if (d < 0) return `<span class="kpi-delta kpi-delta-down">▼ ${Math.abs(d).toFixed(1)}%</span>`;
   return '<span class="kpi-delta kpi-delta-flat">0.0%</span>';
+}
+
+function monthToRange(monthVal) {
+  if (!monthVal) return { start: null, end: null };
+  const [y, m] = monthVal.split('-').map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  const mm = String(m).padStart(2, '0');
+  return {
+    start: `${y}-${mm}-01`,
+    end: `${y}-${mm}-${String(lastDay).padStart(2, '0')}`,
+  };
+}
+
+function monthLabel(key) {
+  if (!key) return '';
+  const [y, m] = key.split('-').map(Number);
+  const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${names[m - 1] || m} ${y}`;
 }
 
 async function loadAvailableMonths() {
@@ -79,17 +93,16 @@ async function loadAvailableMonths() {
 }
 
 function getDateRange() {
-  const today = new Date();
-  const end = state.endDate || today.toISOString().slice(0, 10);
+  return monthToRange(state.month);
+}
 
-  if (state.dateRange === 'custom' && state.startDate) {
-    return { start: state.startDate, end: state.endDate || end };
-  }
-
-  const start = new Date(today);
-  const days = state.dateRange === '90' ? 90 : state.dateRange === '30' ? 30 : 7;
-  start.setDate(start.getDate() - days);
-  return { start: start.toISOString().slice(0, 10), end };
+function buildQuery() {
+  const { start, end } = getDateRange();
+  const params = new URLSearchParams();
+  params.set('company', state.company);
+  if (start) params.set('start', start);
+  if (end) params.set('end', end);
+  return params.toString();
 }
 
 function destroyChart(id) {
@@ -138,15 +151,6 @@ async function fetchJSON(url) {
   return res.json();
 }
 
-function buildQuery() {
-  const { start, end } = getDateRange();
-  const params = new URLSearchParams();
-  params.set('company', state.company);
-  params.set('start', start);
-  params.set('end', end);
-  return params.toString();
-}
-
 function companyLabel(company) {
   return company === 'workjapan' ? 'WORK JAPAN' : 'Nyuuly';
 }
@@ -156,28 +160,15 @@ function updateFilterLabel(filter) {
   if (!el) return;
   const { start, end } = getDateRange();
   const co = filter?.company || state.company;
-  const rangeLabel = state.dateRange === '7' ? 'Last 7 days'
-    : state.dateRange === '30' ? 'Last 30 days'
-    : state.dateRange === '90' ? 'Last 3 months'
-    : 'Custom range';
-  el.textContent = `${companyLabel(co)} · ${rangeLabel} (${start} → ${end})`;
+  const label = state.month ? monthLabel(state.month) : 'No month selected';
+  el.textContent = start && end
+    ? `${companyLabel(co)} · ${label} (${start} → ${end})`
+    : `${companyLabel(co)} · ${label}`;
 }
 
 function syncStateFromUI() {
   const activeCompany = document.querySelector('#companyTabs .tab-btn.active');
   if (activeCompany?.dataset.company) state.company = activeCompany.dataset.company;
-
-  const activeRange = document.querySelector('#dateGroup .tab-btn.active');
-  if (activeRange?.dataset.range) state.dateRange = activeRange.dataset.range;
-
-  const today = new Date().toISOString().slice(0, 10);
-  const endInput = document.getElementById('endDate');
-  const startInput = document.getElementById('startDate');
-  if (endInput && !endInput.value) endInput.value = today;
-  if (startInput && !startInput.value) {
-    const { start } = getDateRange();
-    startInput.value = start;
-  }
 }
 
 function formatDelta(pct) {
@@ -269,7 +260,7 @@ function renderFunnelPipeline(journeys, platform, applicants, social, users, del
       num: 1,
       label: 'Awareness',
       value: formatNum(awareness?.kpis?.socialViews),
-      detail: `${formatNum(awareness?.kpis?.socialReach)} reach`,
+      detail: `${formatNum(awareness?.kpis?.socialReach)} reach · ${formatNum(awareness?.kpis?.gscClicks)} organic clicks`,
       deltaKey: 'socialViews',
     },
     {
@@ -474,6 +465,24 @@ function renderConsiderationInsights(consideration) {
             <div class="chart-header"><h3>Users at each step</h3><button class="chart-download" data-chart="chartConsiderationFunnel">PNG</button></div>
             <div class="chart-wrapper"><canvas id="chartConsiderationFunnel"></canvas></div>
           </div>
+        </div>
+
+        <div class="consideration-panel">
+          <h4>Organic landing pages (Search Console)</h4>
+          <p class="subsection-hint">Top pages receiving organic search clicks this month — upload GSC Performance zip on the <a href="/upload">upload page</a>.</p>
+          <div class="table-wrap"><table class="consideration-table">
+            <thead><tr><th>Page</th><th>Clicks</th><th>Impressions</th><th>CTR</th><th>Position</th></tr></thead>
+            <tbody>${(consideration.topGscPages || []).map((p) => `
+              <tr>
+                <td class="gsc-page-cell">${p.page}</td>
+                <td>${formatNum(p.clicks)}</td>
+                <td>${formatNum(p.impressions)}</td>
+                <td>${formatPct(p.ctr)}</td>
+                <td>${p.position?.toFixed?.(1) ?? p.position}</td>
+              </tr>
+            `).join('') || '<tr><td colspan="5" class="empty-state">Upload Search Console zip for this month</td></tr>'}
+            </tbody>
+          </table></div>
         </div>
 
         <div class="consideration-panel">
@@ -1110,6 +1119,7 @@ function renderDataStatus(completeness) {
     funnel: 'Funnel',
     users: 'Users',
     pages: 'Pages',
+    gsc: 'GSC',
   };
   el.innerHTML = Object.entries(labels).map(([key, label]) => {
     const ok = completeness[key];
@@ -1391,6 +1401,90 @@ async function loadLastUpdated() {
       ? `Last updated: ${new Date(data.lastUpdated + 'Z').toLocaleString()}`
       : 'Last updated: —';
   } catch (_) {}
+}
+
+function renderGscKpis(gsc, deltas) {
+  const el = document.getElementById('gscKpis');
+  if (!el) return;
+  const kpis = gsc?.kpis || {};
+  if (!gsc?.hasData) {
+    el.innerHTML = '<div class="empty-state">No Search Console data for this month — upload the GSC Performance zip on the <a href="/upload">upload page</a>.</div>';
+    return;
+  }
+  el.innerHTML = [
+    { label: 'Organic Clicks', value: formatNum(kpis.clicks), key: 'gscClicks' },
+    { label: 'Impressions', value: formatNum(kpis.impressions), key: 'gscImpressions' },
+    { label: 'Avg Position', value: kpis.avgPosition?.toFixed?.(1) ?? '—', key: 'gscAvgPosition' },
+    { label: 'CTR', value: formatPct(kpis.ctr), key: 'gscCtr' },
+  ].map((k) => `
+    <div class="kpi-card">
+      <div class="label">${k.label}</div>
+      <div class="value">${k.value}${deltaBadge(deltas, k.key)}</div>
+    </div>
+  `).join('');
+}
+
+function renderGscCharts(gsc) {
+  destroyChart('chartGscDaily');
+  destroyChart('chartGscQueries');
+
+  const dailyCanvas = document.getElementById('chartGscDaily');
+  const queriesCanvas = document.getElementById('chartGscQueries');
+  if (!gsc?.hasData) return;
+
+  const daily = gsc.daily || [];
+  if (dailyCanvas && daily.length) {
+    charts.chartGscDaily = new Chart(dailyCanvas, {
+      type: 'line',
+      data: {
+        labels: daily.map((d) => d.dimension_value.slice(5)),
+        datasets: [
+          { label: 'Clicks', data: daily.map((d) => d.clicks), borderColor: COLORS.workjapan, tension: 0.3 },
+          { label: 'Impressions', data: daily.map((d) => d.impressions), borderColor: COLORS.nyuuly, tension: 0.3, yAxisID: 'y1' },
+        ],
+      },
+      options: {
+        ...chartDefaults(),
+        scales: {
+          x: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
+          y: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid }, position: 'left' },
+          y1: { ticks: { color: COLORS.text }, grid: { drawOnChartArea: false }, position: 'right' },
+        },
+      },
+    });
+  }
+
+  const queries = (gsc.topQueries || []).slice(0, 10);
+  if (queriesCanvas && queries.length) {
+    charts.chartGscQueries = new Chart(queriesCanvas, {
+      type: 'bar',
+      data: {
+        labels: queries.map((q) => q.dimension_value.length > 28 ? q.dimension_value.slice(0, 28) + '…' : q.dimension_value),
+        datasets: [{ label: 'Clicks', data: queries.map((q) => q.clicks), backgroundColor: COLORS.workjapanLight }],
+      },
+      options: { ...chartDefaults(), indexAxis: 'y' },
+    });
+  }
+}
+
+function renderGscQueriesTable(gsc) {
+  const table = document.getElementById('gscQueriesTable');
+  if (!table) return;
+  const thead = table.querySelector('thead');
+  const tbody = table.querySelector('tbody');
+  thead.innerHTML = '<tr><th>Query</th><th>Clicks</th><th>Impressions</th><th>CTR</th><th>Position</th></tr>';
+  const rows = gsc?.topQueries || [];
+  tbody.innerHTML = rows.length
+    ? rows.map((q) => `
+      <tr>
+        <td>${q.dimension_value}</td>
+        <td>${formatNum(q.clicks)}</td>
+        <td>${formatNum(q.impressions)}</td>
+        <td>${formatPct(q.ctr)}</td>
+        <td>${q.position?.toFixed?.(1) ?? q.position}</td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="5" class="empty-state">No query data</td></tr>';
 }
 
 function renderSocialKpis(kpis, deltas) {
@@ -1964,12 +2058,21 @@ function renderPagination(containerId, current, total, onChange) {
 }
 
 async function loadDashboard() {
+  await loadAvailableMonths();
+  if (!state.month) {
+    updateFilterLabel();
+    document.body.classList.remove('is-loading');
+    return;
+  }
+
   const q = buildQuery();
   document.body.classList.add('is-loading');
   updateCompanyLayout();
 
   try {
     const isWorkJapan = state.company === 'workjapan';
+    const monthQ = new URLSearchParams({ company: state.company, month: state.month });
+
     const fetches = [
       fetchJSON(`/api/social?${q}`),
       fetchJSON(`/api/funnel?${q}`),
@@ -1977,6 +2080,8 @@ async function loadDashboard() {
       fetchJSON(`/api/pages?${q}`),
       fetchJSON(`/api/journeys?${q}`),
       fetchJSON(`/api/dashboard-guide?company=${state.company}`),
+      fetchJSON(`/api/search-console?${q}`),
+      fetchJSON(`/api/monthly?${monthQ.toString()}`),
     ];
     if (isWorkJapan) {
       fetches.push(fetchJSON(`/api/platform-stats?${q}`));
@@ -1986,21 +2091,19 @@ async function loadDashboard() {
     }
 
     const results = await Promise.all(fetches);
-    const [social, funnel, users, pages, journeys, guide, platform, applicants, intelligence, internalReport] = isWorkJapan
+    const [social, funnel, users, pages, journeys, guide, gsc, monthly, platform, applicants, intelligence, internalReport] = isWorkJapan
       ? results
-      : [...results.slice(0, 6), null, null, null, null];
+      : [...results.slice(0, 8), null, null, null, null];
 
-    let deltas = null;
-    if (state.mode === 'month') {
-      const monthQ = new URLSearchParams({ company: state.company });
-      if (state.month) monthQ.set('month', state.month);
-      const monthly = await fetchJSON(`/api/monthly?${monthQ.toString()}`);
-      deltas = monthly.kpis || {};
-    }
+    const deltas = monthly?.kpis || {};
 
     updateFilterLabel(journeys.filter || social.filter);
     renderDashboardGuide(guide);
     renderFunnelNav(guide);
+
+    renderGscKpis(gsc, deltas);
+    renderGscCharts(gsc);
+    renderGscQueriesTable(gsc);
 
     if (isWorkJapan) {
       renderFunnelPipeline(journeys, platform, applicants, social, users, deltas);
@@ -2074,85 +2177,20 @@ async function loadDashboard() {
 }
 
 function initControls() {
-  document.getElementById('companyTabs').addEventListener('click', (e) => {
+  document.getElementById('companyTabs').addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-company]');
     if (!btn) return;
     document.querySelectorAll('#companyTabs .tab-btn').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     state.company = btn.dataset.company;
     state.activeJourney = 'awareness';
-    loadDashboard();
-  });
-
-  document.getElementById('modeGroup').addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-mode]');
-    if (!btn) return;
-    document.querySelectorAll('#modeGroup .tab-btn').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    state.mode = btn.dataset.mode;
-
-    const dateGroup = document.getElementById('dateGroup');
-    const monthSelect = document.getElementById('monthSelect');
-    const isMonth = state.mode === 'month';
-    dateGroup.style.display = isMonth ? 'none' : '';
-    monthSelect.style.display = isMonth ? 'inline-block' : 'none';
-
-    if (isMonth) {
-      await loadAvailableMonths();
-    }
+    await loadAvailableMonths();
     loadDashboard();
   });
 
   document.getElementById('monthSelect').addEventListener('change', (e) => {
     state.month = e.target.value;
     loadDashboard();
-  });
-
-  document.getElementById('dateGroup').addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-range]');
-    if (!btn) return;
-    document.querySelectorAll('#dateGroup .tab-btn').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    state.dateRange = btn.dataset.range;
-
-    const showCustom = state.dateRange === 'custom';
-    const startInput = document.getElementById('startDate');
-    const endInput = document.getElementById('endDate');
-    startInput.style.display = showCustom ? 'inline-block' : 'none';
-    endInput.style.display = showCustom ? 'inline-block' : 'none';
-
-    if (showCustom) {
-      const today = new Date().toISOString().slice(0, 10);
-      if (!endInput.value) endInput.value = today;
-      if (!startInput.value) {
-        const d = new Date();
-        d.setDate(d.getDate() - 30);
-        startInput.value = d.toISOString().slice(0, 10);
-      }
-      state.startDate = startInput.value;
-      state.endDate = endInput.value;
-    } else {
-      state.startDate = null;
-      state.endDate = null;
-    }
-
-    loadDashboard();
-  });
-
-  document.getElementById('startDate').addEventListener('change', (e) => {
-    state.startDate = e.target.value;
-    state.dateRange = 'custom';
-    document.querySelectorAll('#dateGroup .tab-btn').forEach((b) => b.classList.remove('active'));
-    document.querySelector('#dateGroup [data-range="custom"]')?.classList.add('active');
-    if (state.endDate) loadDashboard();
-  });
-
-  document.getElementById('endDate').addEventListener('change', (e) => {
-    state.endDate = e.target.value;
-    state.dateRange = 'custom';
-    document.querySelectorAll('#dateGroup .tab-btn').forEach((b) => b.classList.remove('active'));
-    document.querySelector('#dateGroup [data-range="custom"]')?.classList.add('active');
-    if (state.startDate) loadDashboard();
   });
 
   document.querySelectorAll('.section-header').forEach(header => {
@@ -2169,9 +2207,10 @@ function initControls() {
   });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   syncStateFromUI();
   initControls();
   loadLastUpdated();
+  await loadAvailableMonths();
   loadDashboard();
 });

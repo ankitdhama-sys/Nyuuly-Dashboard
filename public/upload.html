@@ -30,12 +30,18 @@
 
       <div class="upload-progress" id="uploadProgress">
         <div class="upload-progress-label">
-          <span id="progressText">0 of 4 files uploaded</span>
+          <span id="progressText">0 of 5 files uploaded</span>
           <span id="progressPct">0%</span>
         </div>
         <div class="upload-progress-bar">
           <div class="upload-progress-fill" id="progressFill" style="width:0%"></div>
         </div>
+      </div>
+
+      <div class="upload-month-grid-wrap" id="uploadMonthGridWrap">
+        <h3>Monthly upload status</h3>
+        <p class="slot-meta slot-meta-muted">One file per type per month. Green = uploaded for that month.</p>
+        <div id="uploadMonthGrid"></div>
       </div>
     </div>
 
@@ -257,9 +263,9 @@
       {
         type: 'social',
         title: '1. Social Media Posts',
-        hint: 'Meta / social exports per account (Instagram, YouTube, Facebook, etc.) — Post ID, Views, Reach. Dated automatically by each post\u2019s publish time.',
+        hint: 'Meta / social exports per account (Instagram, YouTube, Facebook, etc.) — Post ID, Views, Reach.',
         accept: '.csv',
-        needsMonth: false,
+        needsMonth: true,
       },
       {
         type: 'funnel',
@@ -280,6 +286,13 @@
         title: '4. Pages & Screens (GA4)',
         hint: 'GA4 Pages and screens report — Page path and screen class.',
         accept: '.csv',
+        needsMonth: true,
+      },
+      {
+        type: 'gsc',
+        title: '5. Search Console Performance',
+        hint: 'GSC Performance export zip — must contain Chart.csv, Queries.csv, and Pages.csv inside.',
+        accept: '.zip',
         needsMonth: true,
       },
     ];
@@ -303,6 +316,7 @@
         funnel: 'Funnel Data',
         users: 'User Acquisition',
         pages: 'Pages & Screens',
+        gsc: 'Search Console',
         platform: 'Platform Registrations',
         applicants: 'Job Seeker Applications',
       };
@@ -333,7 +347,7 @@
               <label>Month
                 <input type="month" class="slot-month" name="month" required>
               </label>
-              <span class="slot-month-hint">One file per month. The file is stored as this whole calendar month \u2014 pick any month, past or current.</span>
+              <span class="slot-month-hint">One file per month. Stored as this whole calendar month.</span>
             </div>`
           : '';
 
@@ -362,9 +376,56 @@
       });
     }
 
+    function renderUploadMonthGrid(data) {
+      const el = document.getElementById('uploadMonthGrid');
+      if (!el) return;
+      const months = data?.months || [];
+      if (!months.length) {
+        el.innerHTML = '<p class="slot-meta slot-meta-muted">No monthly data yet — upload files above.</p>';
+        return;
+      }
+      const labels = {
+        social: 'Social',
+        funnel: 'Funnel',
+        users: 'Users',
+        pages: 'Pages',
+        gsc: 'GSC',
+      };
+      el.innerHTML = `
+        <table class="upload-grid-table">
+          <thead>
+            <tr>
+              <th>Type</th>
+              ${months.map((m) => `<th>${escapeHtml(m.replace(/^\d{4}-/, ''))}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${SLOTS.map((slot) => `
+              <tr>
+                <td>${labels[slot.type] || slot.type}</td>
+                ${months.map((m) => {
+                  const ok = data.grid?.[m]?.[slot.type];
+                  return `<td class="upload-grid-cell ${ok ? 'upload-grid-done' : ''}">${ok ? '✓' : '—'}</td>`;
+                }).join('')}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>`;
+    }
+
+    async function loadUploadMonthGrid() {
+      try {
+        const res = await fetch(`/api/upload-status-by-month?company=${companySelect.value}`);
+        const data = await res.json();
+        renderUploadMonthGrid(data);
+      } catch (err) {
+        console.error('Failed to load upload month grid:', err);
+      }
+    }
+
     function updateProgress(status) {
       const count = status?.uploadedCount || 0;
-      const total = status?.totalRequired || 4;
+      const total = status?.totalRequired || 5;
       const pct = Math.round((count / total) * 100);
       document.getElementById('progressText').textContent = `${count} of ${total} files uploaded for ${formatCompany(status?.company || companySelect.value)}`;
       document.getElementById('progressPct').textContent = `${pct}%`;
@@ -565,6 +626,7 @@
         renderSlots(status);
         updateProgress(status);
         updateManualStatus(status);
+        await loadUploadMonthGrid();
       } catch (err) {
         console.error('Failed to load upload status:', err);
       }

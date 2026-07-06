@@ -2,8 +2,20 @@ const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 const fs = require('fs');
 
-const dbPath = process.env.DATABASE_PATH || path.join(__dirname, 'analytics.db');
+/** Prefer explicit DATABASE_PATH, then Railway volume mount, else local database/ folder. */
+function resolveDbPath() {
+  if (process.env.DATABASE_PATH) return process.env.DATABASE_PATH;
+  if (process.env.RAILWAY_VOLUME_MOUNT_PATH) {
+    return path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, 'analytics.db');
+  }
+  return path.join(__dirname, 'analytics.db');
+}
+
+const dbPath = resolveDbPath();
 const dbDir = path.dirname(dbPath);
+const isRailway = Boolean(process.env.RAILWAY_ENVIRONMENT);
+const isVolumeBacked = Boolean(process.env.RAILWAY_VOLUME_MOUNT_PATH)
+  || (isRailway && process.env.DATABASE_PATH?.startsWith('/'));
 
 if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
@@ -194,7 +206,22 @@ function initDb() {
       upload_date TEXT DEFAULT (date('now')),
       UNIQUE(company, month_label, barrier_name)
     );
+
+    CREATE TABLE IF NOT EXISTS search_console_stats (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      company TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      dimension_type TEXT NOT NULL,
+      dimension_value TEXT NOT NULL,
+      clicks INTEGER DEFAULT 0,
+      impressions INTEGER DEFAULT 0,
+      ctr REAL DEFAULT 0,
+      position REAL DEFAULT 0,
+      upload_date TEXT DEFAULT (date('now')),
+      UNIQUE(company, start_date, end_date, dimension_type, dimension_value)
+    );
   `);
 }
 
-module.exports = { db, initDb, dbPath };
+module.exports = { db, initDb, dbPath, isRailway, isVolumeBacked };
