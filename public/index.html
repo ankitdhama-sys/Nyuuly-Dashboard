@@ -31,11 +31,12 @@
   </div>
 
   <main class="main">
-    <nav class="funnel-nav workjapan-only" id="funnelNav" aria-label="Job seeker funnel stages"></nav>
+    <nav class="funnel-nav" id="funnelNav" aria-label="Funnel stages"></nav>
 
-    <section class="section funnel-overview-section workjapan-only" id="section-funnel-overview">
+    <section class="section funnel-overview-section" id="section-funnel-overview">
       <div class="section-header" data-section="funnel-overview">
-        <h2>Job Seeker Funnel — At a Glance</h2>
+        <h2 class="section-title-wj">Job Seeker Funnel — At a Glance</h2>
+        <h2 class="section-title-nyuuly">Customer Funnel — At a Glance</h2>
         <span class="collapse-icon">▼</span>
       </div>
       <div class="section-body">
@@ -44,11 +45,13 @@
       </div>
     </section>
 
-    <div class="funnel-stage-banner workjapan-only" id="stage-awareness">
+    <div class="funnel-stage-banner" id="stage-awareness">
       <span class="funnel-stage-num">1</span>
       <div>
-        <h2 class="funnel-stage-title">Awareness</h2>
-        <p class="funnel-stage-question">How do job seekers discover WORK JAPAN?</p>
+        <h2 class="funnel-stage-title funnel-stage-title-wj">Awareness</h2>
+        <h2 class="funnel-stage-title funnel-stage-title-nyuuly">Awareness</h2>
+        <p class="funnel-stage-question funnel-stage-question-wj">How do job seekers discover WORK JAPAN?</p>
+        <p class="funnel-stage-question funnel-stage-question-nyuuly">How do users discover Nyuuly?</p>
       </div>
     </div>
 
@@ -103,14 +106,16 @@
       </div>
     </section>
 
-    <div class="funnel-stage-banner workjapan-only" id="stage-consideration">
+    <div class="funnel-stage-banner" id="stage-consideration">
       <span class="funnel-stage-num">2</span>
       <div>
-        <h2 class="funnel-stage-title">Consideration</h2>
-        <p class="funnel-stage-question">Where do users come from, what do they browse, and where is the biggest drop-off?</p>
+        <h2 class="funnel-stage-title funnel-stage-title-wj">Consideration</h2>
+        <h2 class="funnel-stage-title funnel-stage-title-nyuuly">Consideration</h2>
+        <p class="funnel-stage-question funnel-stage-question-wj">Where do users come from, what do they browse, and where is the biggest drop-off?</p>
+        <p class="funnel-stage-question funnel-stage-question-nyuuly">Where do users come from and what pages do they view?</p>
       </div>
     </div>
-    <div id="considerationAudience" class="consideration-audience workjapan-only">
+    <div id="considerationAudience" class="consideration-audience">
       <div class="consideration-hub-inner">
         <div class="consideration-grid">
           <div class="consideration-panel">
@@ -134,17 +139,7 @@
         </div>
       </div>
     </div>
-    <div id="considerationInsights" class="consideration-hub workjapan-only"></div>
-
-    <section class="section workjapan-only internal-reporting-section" id="section-internal-reporting">
-      <div class="section-header" data-section="internal-reporting">
-        <h2>Internal Reporting — GA4 + Business Metrics</h2>
-        <span class="collapse-icon">▼</span>
-      </div>
-      <div class="section-body" id="internalReportingRoot">
-        <p class="subsection-hint">Combines GA4 page data (CSV) with manually tracked registrations, applications, and hires.</p>
-      </div>
-    </section>
+    <div id="considerationInsights" class="consideration-hub"></div>
 
     <section class="section" id="section-users">
       <div class="section-header" data-section="users">
@@ -158,10 +153,6 @@
           <div class="chart-container">
             <div class="chart-header"><h3>Users by Channel</h3><button class="chart-download" data-chart="chartUsersDonut">PNG</button></div>
             <div class="chart-wrapper"><canvas id="chartUsersDonut"></canvas></div>
-          </div>
-          <div class="chart-container">
-            <div class="chart-header"><h3>New Users by Channel</h3><button class="chart-download" data-chart="chartUsersBar">PNG</button></div>
-            <div class="chart-wrapper"><canvas id="chartUsersBar"></canvas></div>
           </div>
           <div class="chart-container full-width">
             <div class="chart-header"><h3>Avg Engagement Time by Channel</h3><button class="chart-download" data-chart="chartUsersEngagement">PNG</button></div>
@@ -180,21 +171,80 @@
         <span class="collapse-icon">▼</span>
       </div>
       <div class="section-body">
-        <div class="chart-grid">
-          <div class="chart-container">
-            <div class="chart-header"><h3>Top 15 Pages by Views</h3><button class="chart-download" data-chart="chartPagesBar">PNG</button></div>
-            <div class="chart-wrapper"><canvas id="chartPagesBar"></canvas></div>
-          </div>
-          <div class="chart-container">
-            <div class="chart-header"><h3>Views vs Engagement Time</h3><button class="chart-download" data-chart="chartPagesScatter">PNG</button></div>
-            <div class="chart-wrapper"><canvas id="chartPagesScatter"></canvas></div>
-          </div>
-        </div>
         <h4 class="subsection-title workjapan-only">Top Job Pages</h4>
         <div class="table-wrap workjapan-only"><table id="topJobsTable"><thead></thead><tbody></tbody></table></div>
         <h4 class="subsection-title">Page Performance</h4>
         <div class="table-wrap"><table id="pagesTable"><thead></thead><tbody></tbody></table></div>
         <div class="pagination" id="pagesPagination"></div>
+      </div>
+    </section>
+
+    <div class="funnel-stage-banner nyuuly-only" id="stage-commit-nyuuly">
+      <span class="funnel-stage-num">3</span>
+      <div>
+        <h2 class="funnel-stage-title">Commit</h2>
+        <p class="funnel-stage-question">How many users subscribe and start Compass?</p>
+      </div>
+    </div>
+
+    <section class="section nyuuly-only" id="section-nyuuly-commit">
+      <div class="section-header" data-section="nyuuly-commit">
+        <h2>Nyuuly Subscribe &amp; Compass</h2>
+        <span class="collapse-icon">▼</span>
+      </div>
+      <div class="section-body">
+        <p class="subsection-hint">Enter monthly counts on the <a href="/upload">upload page</a>.</p>
+        <div class="kpi-row" id="nyuulyCommitKpis"></div>
+        <div class="chart-container">
+          <div class="chart-header"><h3>Commit metrics — last 6 months</h3><button class="chart-download" data-chart="chartNyuulyCommit">PNG</button></div>
+          <div class="chart-wrapper"><canvas id="chartNyuulyCommit"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="funnel-stage-banner nyuuly-only" id="stage-proceed-nyuuly">
+      <span class="funnel-stage-num">4</span>
+      <div>
+        <h2 class="funnel-stage-title">Proceed (Uses)</h2>
+        <p class="funnel-stage-question">How many users add to cart, start the welcome package, and complete Compass?</p>
+      </div>
+    </div>
+
+    <section class="section nyuuly-only" id="section-nyuuly-proceed">
+      <div class="section-header" data-section="nyuuly-proceed">
+        <h2>Proceed (Uses)</h2>
+        <span class="collapse-icon">▼</span>
+      </div>
+      <div class="section-body">
+        <p class="subsection-hint">Enter monthly counts on the <a href="/upload">upload page</a>.</p>
+        <div class="kpi-row" id="nyuulyProceedKpis"></div>
+        <div class="chart-container">
+          <div class="chart-header"><h3>Proceed metrics — last 6 months</h3><button class="chart-download" data-chart="chartNyuulyProceed">PNG</button></div>
+          <div class="chart-wrapper"><canvas id="chartNyuulyProceed"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="funnel-stage-banner nyuuly-only" id="stage-result-nyuuly">
+      <span class="funnel-stage-num">5</span>
+      <div>
+        <h2 class="funnel-stage-title">Result</h2>
+        <p class="funnel-stage-question">How many users purchase Mobile Sim and Welcome package, fill forms, and submit Ask me requests?</p>
+      </div>
+    </div>
+
+    <section class="section nyuuly-only" id="section-nyuuly-result">
+      <div class="section-header" data-section="nyuuly-result">
+        <h2>Result</h2>
+        <span class="collapse-icon">▼</span>
+      </div>
+      <div class="section-body">
+        <p class="subsection-hint">Enter monthly counts on the <a href="/upload">upload page</a>.</p>
+        <div class="kpi-row" id="nyuulyResultKpis"></div>
+        <div class="chart-container">
+          <div class="chart-header"><h3>Result metrics — last 6 months</h3><button class="chart-download" data-chart="chartNyuulyResult">PNG</button></div>
+          <div class="chart-wrapper"><canvas id="chartNyuulyResult"></canvas></div>
+        </div>
       </div>
     </section>
 
@@ -205,29 +255,8 @@
         <p class="funnel-stage-question">Who registers — and who abandons because of barriers like the Japanese phone number?</p>
       </div>
     </div>
+    <div id="commitRegistration" class="commit-registration workjapan-only"></div>
     <div id="commitBarriers" class="barrier-highlight-panel workjapan-only"></div>
-
-    <section class="section" id="section-funnel">
-      <div class="section-header" data-section="funnel">
-        <h2 class="section-title-wj">GA4 Funnel — Session Quality &amp; Drop-offs</h2>
-        <h2 class="section-title-nyuuly">4. Funnel — Conversion &amp; Drop-off</h2>
-        <span class="collapse-icon">▼</span>
-      </div>
-      <div class="section-body">
-        <div class="chart-grid">
-          <div class="chart-container full-width">
-            <div class="chart-header"><h3>Funnel Steps by Device</h3><button class="chart-download" data-chart="chartFunnel">PNG</button></div>
-            <div class="chart-wrapper"><canvas id="chartFunnel"></canvas></div>
-          </div>
-          <div class="chart-container">
-            <div class="chart-header"><h3>Device Split — Step 1</h3><button class="chart-download" data-chart="chartFunnelDevice">PNG</button></div>
-            <div class="chart-wrapper"><canvas id="chartFunnelDevice"></canvas></div>
-          </div>
-        </div>
-        <h4 class="subsection-title">Funnel Details</h4>
-        <div class="table-wrap"><table id="funnelTable"><thead></thead><tbody></tbody></table></div>
-      </div>
-    </section>
 
     <section class="section workjapan-only" id="section-platform">
       <div class="section-header" data-section="platform">
@@ -235,20 +264,8 @@
         <span class="collapse-icon">▼</span>
       </div>
       <div class="section-body">
-        <p class="subsection-hint">Monthly app registrations — <a href="/upload">upload page</a>.</p>
+        <p class="subsection-hint">Total active users across Web, iOS, and Android — enter monthly data on the <a href="/upload">upload page</a>.</p>
         <div class="kpi-row" id="platformKpis"></div>
-        <div class="chart-grid">
-          <div class="chart-container">
-            <div class="chart-header"><h3>Registrations by Month</h3><button class="chart-download" data-chart="chartRegistrationsByMonth">PNG</button></div>
-            <div class="chart-wrapper"><canvas id="chartRegistrationsByMonth"></canvas></div>
-          </div>
-          <div class="chart-container">
-            <div class="chart-header"><h3>Active Users by Platform</h3><button class="chart-download" data-chart="chartActiveByPlatform">PNG</button></div>
-            <div class="chart-wrapper"><canvas id="chartActiveByPlatform"></canvas></div>
-          </div>
-        </div>
-        <h4 class="subsection-title">Monthly Breakdown</h4>
-        <div class="table-wrap"><table id="platformTable"><thead></thead><tbody></tbody></table></div>
       </div>
     </section>
 
@@ -266,7 +283,6 @@
         <span class="collapse-icon">▼</span>
       </div>
       <div class="section-body">
-        <div id="proceedWebFunnel"></div>
         <div class="kpi-row" id="applicantProceedKpis"></div>
         <div class="chart-grid">
           <div class="chart-container">
@@ -296,68 +312,15 @@
       </div>
       <div class="section-body">
         <div class="kpi-row" id="applicantResultKpis"></div>
-        <h4 class="subsection-title">Monthly Breakdown</h4>
-        <div class="table-wrap"><table id="applicantTable"><thead></thead><tbody></tbody></table></div>
-      </div>
-    </section>
-
-    <div class="funnel-pillar workjapan-only" id="pillar-employer">
-      <div class="funnel-pillar-header">
-        <h2>Employer Intelligence</h2>
-        <p class="funnel-pillar-note">Separate from job seekers — employers follow a different journey.</p>
-      </div>
-      <section class="section" id="section-employer">
-        <div class="section-header" data-section="employer">
-          <h3>Employer Web Journey</h3>
-          <span class="collapse-icon">▼</span>
+        <div class="chart-container">
+          <div class="chart-header"><h3>Recruitment outcomes — last 6 months</h3><button class="chart-download" data-chart="chartApplicantOutcomes">PNG</button></div>
+          <div class="chart-wrapper"><canvas id="chartApplicantOutcomes"></canvas></div>
         </div>
-        <div class="section-body"><div id="employerPanel"></div></div>
-      </section>
-    </div>
-
-    <div class="funnel-pillar workjapan-only" id="pillar-intelligence">
-      <div class="funnel-pillar-header">
-        <h2>Customer Intelligence</h2>
-        <p class="funnel-pillar-note">Nationality, visa, geography, barriers — vs 6-month average. <a href="/upload">Enter monthly data</a>.</p>
-      </div>
-      <section class="section" id="section-intelligence">
-        <div class="section-header" data-section="intelligence">
-          <h3>User Metadata &amp; Trends</h3>
-          <span class="collapse-icon">▼</span>
-        </div>
-        <div class="section-body">
-          <div id="intelligencePanel"></div>
-          <div class="chart-grid">
-            <div class="chart-container">
-              <div class="chart-header"><h3>Visa Abandonment by Type</h3><button class="chart-download" data-chart="chartVisaAbandon">PNG</button></div>
-              <div class="chart-wrapper"><canvas id="chartVisaAbandon"></canvas></div>
-            </div>
-            <div class="chart-container">
-              <div class="chart-header"><h3>Top Nationalities (Visitors)</h3><button class="chart-download" data-chart="chartNationality">PNG</button></div>
-              <div class="chart-wrapper"><canvas id="chartNationality"></canvas></div>
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
-
-    <section class="section journey-section" id="section-journeys">
-      <div class="section-header" data-section="journeys">
-        <h2 id="journeysSectionTitle">Customer Journey Deep Dive</h2>
-        <span class="collapse-icon">▼</span>
-      </div>
-      <div class="section-body">
-        <p class="journey-intro" id="journeyIntro"></p>
-        <div class="journey-tabs" id="journeyTabs"></div>
-        <div id="journeyPanel"></div>
-        <h3 class="subsection-title">Landing Pages &amp; Likely Next Steps</h3>
-        <div class="table-wrap"><table id="landingTable"><thead></thead><tbody></tbody></table></div>
       </div>
     </section>
   </main>
 
   <div class="toast-container" id="toastContainer"></div>
-  <script src="/internal-reporting.js"></script>
   <script src="/dashboard.js"></script>
 </body>
 </html>

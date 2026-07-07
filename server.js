@@ -755,6 +755,9 @@ const MONTH_KEY_SQL = {
   search_console_stats: `substr(start_date, 1, 7)`,
   social_channel_views: `printf('%04d-%02d', year, month)`,
   app_downloads: `printf('%04d-%02d', year, month)`,
+  nyuuly_commit_stats: `printf('%04d-%02d', year, month)`,
+  nyuuly_proceed_stats: `printf('%04d-%02d', year, month)`,
+  nyuuly_result_stats: `printf('%04d-%02d', year, month)`,
   monthly: `printf('%04d-%02d', year, month)`,
 };
 
@@ -784,6 +787,9 @@ function getAvailableMonths(company) {
     `SELECT DISTINCT ${MONTH_KEY_SQL.search_console_stats} AS mk FROM search_console_stats ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.social_channel_views} AS mk FROM social_channel_views ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.app_downloads} AS mk FROM app_downloads ${co.clause}`,
+    `SELECT DISTINCT ${MONTH_KEY_SQL.nyuuly_commit_stats} AS mk FROM nyuuly_commit_stats ${co.clause}`,
+    `SELECT DISTINCT ${MONTH_KEY_SQL.nyuuly_proceed_stats} AS mk FROM nyuuly_proceed_stats ${co.clause}`,
+    `SELECT DISTINCT ${MONTH_KEY_SQL.nyuuly_result_stats} AS mk FROM nyuuly_result_stats ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.monthly} AS mk FROM platform_stats ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.monthly} AS mk FROM applicant_stats ${co.clause}`,
   ];
@@ -846,7 +852,10 @@ function monthlyKpisForMonth(company, monthKey) {
   const applicants = db.prepare(`
     SELECT
       COALESCE(SUM(unique_applicants), 0) AS uniqueApplicants,
+      COALESCE(SUM(screening_passes), 0) AS screeningPasses,
       COALESCE(SUM(total_applications), 0) AS totalApplications,
+      COALESCE(SUM(interviews_fixed), 0) AS interviewsFixed,
+      COALESCE(SUM(remaining_esp), 0) AS remainingEsp,
       COALESCE(SUM(selected), 0) AS selected
     FROM applicant_stats
     WHERE ${coFilter} ${MONTH_KEY_SQL.monthly} = ?
@@ -872,6 +881,33 @@ function monthlyKpisForMonth(company, monthKey) {
     WHERE ${coFilter} ${MONTH_KEY_SQL.app_downloads} = ?
   `).get(...withCompany());
 
+  const nyuulyCommit = db.prepare(`
+    SELECT
+      COALESCE(nyuuly_subscribe, 0) AS nyuulySubscribe,
+      COALESCE(compass_started, 0) AS compassStarted
+    FROM nyuuly_commit_stats
+    WHERE ${coFilter} ${MONTH_KEY_SQL.nyuuly_commit_stats} = ?
+  `).get(...withCompany());
+
+  const nyuulyProceed = db.prepare(`
+    SELECT
+      COALESCE(add_to_cart, 0) AS addToCart,
+      COALESCE(welcome_package_started, 0) AS welcomePackageStarted,
+      COALESCE(compass_filled, 0) AS compassFilled
+    FROM nyuuly_proceed_stats
+    WHERE ${coFilter} ${MONTH_KEY_SQL.nyuuly_proceed_stats} = ?
+  `).get(...withCompany());
+
+  const nyuulyResult = db.prepare(`
+    SELECT
+      COALESCE(mobile_sim_purchased, 0) AS mobileSimPurchased,
+      COALESCE(welcome_package_purchased, 0) AS welcomePackagePurchased,
+      COALESCE(form_filled, 0) AS formFilled,
+      COALESCE(ask_me_request, 0) AS askMeRequest
+    FROM nyuuly_result_stats
+    WHERE ${coFilter} ${MONTH_KEY_SQL.nyuuly_result_stats} = ?
+  `).get(...withCompany());
+
   const awarenessTotalViews = (gscKpis.impressions || 0) + (socialChannels?.socialChannelViews || 0);
 
   return {
@@ -882,6 +918,15 @@ function monthlyKpisForMonth(company, monthKey) {
     ...platform,
     ...applicants,
     ...appDownloads,
+    nyuulySubscribe: nyuulyCommit?.nyuulySubscribe || 0,
+    compassStarted: nyuulyCommit?.compassStarted || 0,
+    addToCart: nyuulyProceed?.addToCart || 0,
+    welcomePackageStarted: nyuulyProceed?.welcomePackageStarted || 0,
+    compassFilled: nyuulyProceed?.compassFilled || 0,
+    mobileSimPurchased: nyuulyResult?.mobileSimPurchased || 0,
+    welcomePackagePurchased: nyuulyResult?.welcomePackagePurchased || 0,
+    formFilled: nyuulyResult?.formFilled || 0,
+    askMeRequest: nyuulyResult?.askMeRequest || 0,
     gscClicks: gscKpis.clicks,
     gscImpressions: gscKpis.impressions,
     gscCtr: gscKpis.ctr,
@@ -993,6 +1038,132 @@ function getAppDownloadsForMonth(company, monthKey) {
   };
 }
 
+function saveNyuulyCommitRow(company, parsedMonth, data) {
+  db.prepare(`
+    INSERT OR REPLACE INTO nyuuly_commit_stats
+    (company, month_label, year, month, nyuuly_subscribe, compass_started)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    company,
+    parsedMonth.month_label,
+    parsedMonth.year,
+    parsedMonth.month,
+    parseNum(data.nyuuly_subscribe),
+    parseNum(data.compass_started)
+  );
+}
+
+function getNyuulyCommitForMonth(company, monthKey) {
+  const parsed = parseMonthLabel(monthKey);
+  if (!parsed) {
+    return { nyuulySubscribe: 0, compassStarted: 0, month_label: null };
+  }
+  const coFilter = company && company !== 'all' ? 'company = ? AND' : '';
+  const params = company && company !== 'all'
+    ? [company, parsed.year, parsed.month]
+    : [parsed.year, parsed.month];
+
+  const row = db.prepare(`
+    SELECT nyuuly_subscribe, compass_started, month_label
+    FROM nyuuly_commit_stats
+    WHERE ${coFilter} year = ? AND month = ?
+  `).get(...params);
+
+  return {
+    nyuulySubscribe: row?.nyuuly_subscribe || 0,
+    compassStarted: row?.compass_started || 0,
+    month_label: row?.month_label || parsed.month_label,
+  };
+}
+
+function saveNyuulyProceedRow(company, parsedMonth, data) {
+  db.prepare(`
+    INSERT OR REPLACE INTO nyuuly_proceed_stats
+    (company, month_label, year, month, add_to_cart, welcome_package_started, compass_filled)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    company,
+    parsedMonth.month_label,
+    parsedMonth.year,
+    parsedMonth.month,
+    parseNum(data.add_to_cart),
+    parseNum(data.welcome_package_started),
+    parseNum(data.compass_filled)
+  );
+}
+
+function getNyuulyProceedForMonth(company, monthKey) {
+  const parsed = parseMonthLabel(monthKey);
+  if (!parsed) {
+    return { addToCart: 0, welcomePackageStarted: 0, compassFilled: 0, month_label: null };
+  }
+  const coFilter = company && company !== 'all' ? 'company = ? AND' : '';
+  const params = company && company !== 'all'
+    ? [company, parsed.year, parsed.month]
+    : [parsed.year, parsed.month];
+
+  const row = db.prepare(`
+    SELECT add_to_cart, welcome_package_started, compass_filled, month_label
+    FROM nyuuly_proceed_stats
+    WHERE ${coFilter} year = ? AND month = ?
+  `).get(...params);
+
+  return {
+    addToCart: row?.add_to_cart || 0,
+    welcomePackageStarted: row?.welcome_package_started || 0,
+    compassFilled: row?.compass_filled || 0,
+    month_label: row?.month_label || parsed.month_label,
+  };
+}
+
+function saveNyuulyResultRow(company, parsedMonth, data) {
+  db.prepare(`
+    INSERT OR REPLACE INTO nyuuly_result_stats
+    (company, month_label, year, month, mobile_sim_purchased, welcome_package_purchased, form_filled, ask_me_request)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    company,
+    parsedMonth.month_label,
+    parsedMonth.year,
+    parsedMonth.month,
+    parseNum(data.mobile_sim_purchased),
+    parseNum(data.welcome_package_purchased),
+    parseNum(data.form_filled),
+    parseNum(data.ask_me_request)
+  );
+}
+
+function getNyuulyResultForMonth(company, monthKey) {
+  const parsed = parseMonthLabel(monthKey);
+  if (!parsed) {
+    return {
+      mobileSimPurchased: 0,
+      welcomePackagePurchased: 0,
+      formFilled: 0,
+      askMeRequest: 0,
+      month_label: null,
+    };
+  }
+  const coFilter = company && company !== 'all' ? 'company = ? AND' : '';
+  const params = company && company !== 'all'
+    ? [company, parsed.year, parsed.month]
+    : [parsed.year, parsed.month];
+
+  const row = db.prepare(`
+    SELECT mobile_sim_purchased, welcome_package_purchased, form_filled, ask_me_request, month_label
+    FROM nyuuly_result_stats
+    WHERE ${coFilter} year = ? AND month = ?
+  `).get(...params);
+
+  return {
+    mobileSimPurchased: row?.mobile_sim_purchased || 0,
+    welcomePackagePurchased: row?.welcome_package_purchased || 0,
+    formFilled: row?.form_filled || 0,
+    askMeRequest: row?.ask_me_request || 0,
+    month_label: row?.month_label || parsed.month_label,
+  };
+}
+
 function getPlatformRegistrationsForMonth(company, monthKey) {
   const parsed = parseMonthLabel(monthKey);
   if (!parsed) return { totalRegistrations: 0, platforms: [] };
@@ -1019,6 +1190,33 @@ function getPlatformRegistrationsForMonth(company, monthKey) {
   return {
     totalRegistrations: platforms.reduce((s, p) => s + p.registrations, 0),
     platforms,
+  };
+}
+
+function getApplicantStatsForMonth(company, monthKey) {
+  const parsed = parseMonthLabel(monthKey);
+  if (!parsed) {
+    return { uniqueApplicants: 0, totalApplications: 0 };
+  }
+  const coFilter = company && company !== 'all' ? 'company = ? AND' : '';
+  const params = company && company !== 'all'
+    ? [company, parsed.year, parsed.month]
+    : [parsed.year, parsed.month];
+
+  const row = db.prepare(`
+    SELECT unique_applicants, screening_passes, total_applications,
+           interviews_fixed, remaining_esp, selected
+    FROM applicant_stats
+    WHERE ${coFilter} year = ? AND month = ?
+  `).get(...params);
+
+  return {
+    uniqueApplicants: row?.unique_applicants || 0,
+    screeningPasses: row?.screening_passes || 0,
+    totalApplications: row?.total_applications || 0,
+    interviewsFixed: row?.interviews_fixed || 0,
+    remainingEsp: row?.remaining_esp || 0,
+    selected: row?.selected || 0,
   };
 }
 
@@ -1099,6 +1297,21 @@ function getManualDataStatus(company) {
     FROM app_downloads WHERE company = ?
   `).get(company);
 
+  const nyuulyCommitRows = db.prepare(`
+    SELECT COUNT(*) as count, MAX(month_label) as latestMonth, MAX(upload_date) as lastUpdated
+    FROM nyuuly_commit_stats WHERE company = ?
+  `).get(company);
+
+  const nyuulyProceedRows = db.prepare(`
+    SELECT COUNT(*) as count, MAX(month_label) as latestMonth, MAX(upload_date) as lastUpdated
+    FROM nyuuly_proceed_stats WHERE company = ?
+  `).get(company);
+
+  const nyuulyResultRows = db.prepare(`
+    SELECT COUNT(*) as count, MAX(month_label) as latestMonth, MAX(upload_date) as lastUpdated
+    FROM nyuuly_result_stats WHERE company = ?
+  `).get(company);
+
   const statusBlock = (rows) => ({
     uploaded: rows.count > 0,
     rowsAdded: rows.count,
@@ -1115,6 +1328,9 @@ function getManualDataStatus(company) {
     barriers: statusBlock(barrierRows),
     'social-channels': statusBlock(socialChannelRows),
     'app-downloads': statusBlock(appDownloadRows),
+    'nyuuly-commit': statusBlock(nyuulyCommitRows),
+    'nyuuly-proceed': statusBlock(nyuulyProceedRows),
+    'nyuuly-result': statusBlock(nyuulyResultRows),
   };
 }
 
@@ -1435,6 +1651,102 @@ app.post('/api/manual/app-downloads', uploadLimiter, (req, res) => {
   }
 });
 
+app.post('/api/manual/nyuuly-proceed', uploadLimiter, (req, res) => {
+  try {
+    const { company, month, add_to_cart, welcome_package_started, compass_filled } = req.body;
+    if (company !== 'nyuuly') {
+      return res.status(400).json({ error: 'Nyuuly proceed data is only available for Nyuuly' });
+    }
+    if (!month) return res.status(400).json({ error: 'Month is required' });
+
+    const parsedMonth = parseMonthLabel(month);
+    if (!parsedMonth) return res.status(400).json({ error: 'Invalid month format' });
+
+    if (add_to_cart === '' && welcome_package_started === '' && compass_filled === '') {
+      return res.status(400).json({ error: 'Enter at least one metric' });
+    }
+
+    saveNyuulyProceedRow(company, parsedMonth, {
+      add_to_cart: add_to_cart ?? 0,
+      welcome_package_started: welcome_package_started ?? 0,
+      compass_filled: compass_filled ?? 0,
+    });
+
+    logUpload(`Manual entry — ${parsedMonth.month_label}`, company, 'nyuuly-proceed', 1, 0);
+    res.json({ success: true, rowsAdded: 1, month: parsedMonth.month_label, company });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/manual/nyuuly-result', uploadLimiter, (req, res) => {
+  try {
+    const {
+      company,
+      month,
+      mobile_sim_purchased,
+      welcome_package_purchased,
+      form_filled,
+      ask_me_request,
+    } = req.body;
+    if (company !== 'nyuuly') {
+      return res.status(400).json({ error: 'Nyuuly result data is only available for Nyuuly' });
+    }
+    if (!month) return res.status(400).json({ error: 'Month is required' });
+
+    const parsedMonth = parseMonthLabel(month);
+    if (!parsedMonth) return res.status(400).json({ error: 'Invalid month format' });
+
+    if (
+      mobile_sim_purchased === ''
+      && welcome_package_purchased === ''
+      && form_filled === ''
+      && ask_me_request === ''
+    ) {
+      return res.status(400).json({ error: 'Enter at least one metric' });
+    }
+
+    saveNyuulyResultRow(company, parsedMonth, {
+      mobile_sim_purchased: mobile_sim_purchased ?? 0,
+      welcome_package_purchased: welcome_package_purchased ?? 0,
+      form_filled: form_filled ?? 0,
+      ask_me_request: ask_me_request ?? 0,
+    });
+
+    logUpload(`Manual entry — ${parsedMonth.month_label}`, company, 'nyuuly-result', 1, 0);
+    res.json({ success: true, rowsAdded: 1, month: parsedMonth.month_label, company });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/manual/nyuuly-commit', uploadLimiter, (req, res) => {
+  try {
+    const { company, month, nyuuly_subscribe, compass_started } = req.body;
+    if (company !== 'nyuuly') {
+      return res.status(400).json({ error: 'Nyuuly commit data is only available for Nyuuly' });
+    }
+    if (!month) return res.status(400).json({ error: 'Month is required' });
+
+    const parsedMonth = parseMonthLabel(month);
+    if (!parsedMonth) return res.status(400).json({ error: 'Invalid month format' });
+
+    if (nyuuly_subscribe === '' && compass_started === '') {
+      return res.status(400).json({ error: 'Enter at least one metric' });
+    }
+
+    saveNyuulyCommitRow(company, parsedMonth, {
+      nyuuly_subscribe: nyuuly_subscribe ?? 0,
+      compass_started: compass_started ?? 0,
+    });
+
+    logUpload(`Manual entry — ${parsedMonth.month_label}`, company, 'nyuuly-commit', 1, 0);
+    res.json({ success: true, rowsAdded: 1, month: parsedMonth.month_label, company });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/manual/applicants', uploadLimiter, (req, res) => {
   try {
     const { company, month, unique_applicants, screening_passes, total_applications,
@@ -1634,6 +1946,174 @@ app.get('/api/platform-stats/history', (req, res) => {
       label: monthKeyLabel(monthKey),
       totalRegistrations: data.totalRegistrations,
       platforms: data.platforms,
+    };
+  });
+  res.json({ history, filter: { company } });
+});
+
+app.get('/api/applicant-stats/history', (req, res) => {
+  const { company } = req.query;
+  const months = getAvailableMonths(company).slice(-6);
+  const history = months.map((monthKey) => {
+    const data = getApplicantStatsForMonth(company, monthKey);
+    return {
+      month: monthKey,
+      label: monthKeyLabel(monthKey),
+      uniqueApplicants: data.uniqueApplicants,
+      screeningPasses: data.screeningPasses,
+      totalApplications: data.totalApplications,
+      interviewsFixed: data.interviewsFixed,
+      remainingEsp: data.remainingEsp,
+      selected: data.selected,
+    };
+  });
+  res.json({ history, filter: { company } });
+});
+
+app.get('/api/nyuuly-commit-stats', (req, res) => {
+  const { company, start, end } = req.query;
+  if (company !== 'nyuuly') {
+    return res.status(400).json({ error: 'Nyuuly commit stats are only available for Nyuuly' });
+  }
+  const monthKey = start?.slice(0, 7);
+  if (!monthKey) {
+    return res.json({
+      kpis: { nyuulySubscribe: 0, compassStarted: 0 },
+      latest: null,
+      filter: { company, start, end },
+    });
+  }
+  const data = getNyuulyCommitForMonth(company, monthKey);
+  res.json({
+    kpis: { nyuulySubscribe: data.nyuulySubscribe, compassStarted: data.compassStarted },
+    latest: data.month_label ? {
+      month_label: data.month_label,
+      nyuuly_subscribe: data.nyuulySubscribe,
+      compass_started: data.compassStarted,
+    } : null,
+    filter: { company, start, end, month: monthKey },
+  });
+});
+
+app.get('/api/nyuuly-commit-stats/history', (req, res) => {
+  const { company } = req.query;
+  if (company !== 'nyuuly') {
+    return res.status(400).json({ error: 'Nyuuly commit stats are only available for Nyuuly' });
+  }
+  const months = getAvailableMonths(company).slice(-6);
+  const history = months.map((monthKey) => {
+    const data = getNyuulyCommitForMonth(company, monthKey);
+    return {
+      month: monthKey,
+      label: monthKeyLabel(monthKey),
+      nyuulySubscribe: data.nyuulySubscribe,
+      compassStarted: data.compassStarted,
+    };
+  });
+  res.json({ history, filter: { company } });
+});
+
+app.get('/api/nyuuly-proceed-stats', (req, res) => {
+  const { company, start, end } = req.query;
+  if (company !== 'nyuuly') {
+    return res.status(400).json({ error: 'Nyuuly proceed stats are only available for Nyuuly' });
+  }
+  const monthKey = start?.slice(0, 7);
+  if (!monthKey) {
+    return res.json({
+      kpis: { addToCart: 0, welcomePackageStarted: 0, compassFilled: 0 },
+      latest: null,
+      filter: { company, start, end },
+    });
+  }
+  const data = getNyuulyProceedForMonth(company, monthKey);
+  res.json({
+    kpis: {
+      addToCart: data.addToCart,
+      welcomePackageStarted: data.welcomePackageStarted,
+      compassFilled: data.compassFilled,
+    },
+    latest: data.month_label ? {
+      month_label: data.month_label,
+      add_to_cart: data.addToCart,
+      welcome_package_started: data.welcomePackageStarted,
+      compass_filled: data.compassFilled,
+    } : null,
+    filter: { company, start, end, month: monthKey },
+  });
+});
+
+app.get('/api/nyuuly-proceed-stats/history', (req, res) => {
+  const { company } = req.query;
+  if (company !== 'nyuuly') {
+    return res.status(400).json({ error: 'Nyuuly proceed stats are only available for Nyuuly' });
+  }
+  const months = getAvailableMonths(company).slice(-6);
+  const history = months.map((monthKey) => {
+    const data = getNyuulyProceedForMonth(company, monthKey);
+    return {
+      month: monthKey,
+      label: monthKeyLabel(monthKey),
+      addToCart: data.addToCart,
+      welcomePackageStarted: data.welcomePackageStarted,
+      compassFilled: data.compassFilled,
+    };
+  });
+  res.json({ history, filter: { company } });
+});
+
+app.get('/api/nyuuly-result-stats', (req, res) => {
+  const { company, start, end } = req.query;
+  if (company !== 'nyuuly') {
+    return res.status(400).json({ error: 'Nyuuly result stats are only available for Nyuuly' });
+  }
+  const monthKey = start?.slice(0, 7);
+  if (!monthKey) {
+    return res.json({
+      kpis: {
+        mobileSimPurchased: 0,
+        welcomePackagePurchased: 0,
+        formFilled: 0,
+        askMeRequest: 0,
+      },
+      latest: null,
+      filter: { company, start, end },
+    });
+  }
+  const data = getNyuulyResultForMonth(company, monthKey);
+  res.json({
+    kpis: {
+      mobileSimPurchased: data.mobileSimPurchased,
+      welcomePackagePurchased: data.welcomePackagePurchased,
+      formFilled: data.formFilled,
+      askMeRequest: data.askMeRequest,
+    },
+    latest: data.month_label ? {
+      month_label: data.month_label,
+      mobile_sim_purchased: data.mobileSimPurchased,
+      welcome_package_purchased: data.welcomePackagePurchased,
+      form_filled: data.formFilled,
+      ask_me_request: data.askMeRequest,
+    } : null,
+    filter: { company, start, end, month: monthKey },
+  });
+});
+
+app.get('/api/nyuuly-result-stats/history', (req, res) => {
+  const { company } = req.query;
+  if (company !== 'nyuuly') {
+    return res.status(400).json({ error: 'Nyuuly result stats are only available for Nyuuly' });
+  }
+  const months = getAvailableMonths(company).slice(-6);
+  const history = months.map((monthKey) => {
+    const data = getNyuulyResultForMonth(company, monthKey);
+    return {
+      month: monthKey,
+      label: monthKeyLabel(monthKey),
+      mobileSimPurchased: data.mobileSimPurchased,
+      welcomePackagePurchased: data.welcomePackagePurchased,
+      formFilled: data.formFilled,
+      askMeRequest: data.askMeRequest,
     };
   });
   res.json({ history, filter: { company } });
@@ -2489,7 +2969,7 @@ app.delete('/api/data', (req, res) => {
     return res.status(400).json({ error: 'Must pass confirm=yes' });
   }
 
-  const allowedTables = ['social_posts', 'funnel_data', 'traffic_acquisition', 'user_acquisition', 'pages_screens', 'search_console_stats', 'social_channel_views', 'app_downloads', 'platform_stats', 'applicant_stats'];
+  const allowedTables = ['social_posts', 'funnel_data', 'traffic_acquisition', 'user_acquisition', 'pages_screens', 'search_console_stats', 'social_channel_views', 'app_downloads', 'nyuuly_commit_stats', 'nyuuly_proceed_stats', 'nyuuly_result_stats', 'platform_stats', 'applicant_stats'];
   if (!allowedTables.includes(table)) {
     return res.status(400).json({ error: 'Invalid table name' });
   }

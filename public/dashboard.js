@@ -17,18 +17,13 @@ let state = {
   company: 'workjapan',
   month: null,
   availableMonths: [],
-  activeJourney: 'awareness',
 };
 
-let journeyData = null;
-
 let socialPosts = [];
-let funnelRows = [];
 let socialPage = 1;
 let pagesData = [];
 let pagesPage = 1;
 let socialSort = { col: 'views', dir: 'desc' };
-let funnelSort = { col: 'step', dir: 'asc' };
 let usersSort = { col: 'total_users', dir: 'desc' };
 let pagesSort = { col: 'views', dir: 'desc' };
 
@@ -156,8 +151,17 @@ function downloadChart(canvasId) {
 
 async function fetchJSON(url) {
   const res = await fetch(url);
-  if (!res.ok) throw new Error('API error');
+  if (!res.ok) throw new Error(`API error: ${url} (${res.status})`);
   return res.json();
+}
+
+async function fetchJSONSafe(url, fallback = null) {
+  try {
+    return await fetchJSON(url);
+  } catch (err) {
+    console.warn('Optional API fetch failed:', err.message || err);
+    return fallback;
+  }
 }
 
 function companyLabel(company) {
@@ -191,6 +195,10 @@ function journeyById(journeys, id) {
   return journeys?.journeys?.find((j) => j.id === id);
 }
 
+function companyBrandColor() {
+  return state.company === 'workjapan' ? COLORS.workjapan : COLORS.nyuuly;
+}
+
 function updateCompanyLayout() {
   const isWj = state.company === 'workjapan';
   document.body.classList.toggle('company-workjapan', isWj);
@@ -198,17 +206,18 @@ function updateCompanyLayout() {
   document.querySelectorAll('.workjapan-only').forEach((el) => {
     el.style.display = isWj ? '' : 'none';
   });
-  const journeysTitle = document.getElementById('journeysSectionTitle');
-  if (journeysTitle) {
-    journeysTitle.textContent = isWj
-      ? 'Customer Journey Deep Dive (optional detail)'
-      : 'Customer Journeys';
-  }
+  document.querySelectorAll('.nyuuly-only').forEach((el) => {
+    if (el.classList.contains('funnel-nav')) {
+      el.style.display = isWj ? 'none' : 'flex';
+    } else {
+      el.style.display = isWj ? 'none' : '';
+    }
+  });
 }
 
 function renderFunnelNav(guide) {
   const nav = document.getElementById('funnelNav');
-  if (!nav || state.company !== 'workjapan') return;
+  if (!nav) return;
 
   const stages = guide?.funnelStages || [];
   const pillars = guide?.pillars_extra || [];
@@ -224,14 +233,15 @@ function renderFunnelNav(guide) {
   ].join('');
 }
 
-function renderFunnelPipeline(journeys, platform, applicants, social, users, deltas) {
+function renderFunnelPipeline(journeys, platform, applicants, social, users, deltas, nyuulyCommit, nyuulyProceed, nyuulyResult) {
   const el = document.getElementById('funnelPipeline');
-  if (!el || state.company !== 'workjapan') return;
+  if (!el) return;
 
   const awareness = journeyById(journeys, 'awareness');
   const register = journeyById(journeys, 'register-apply');
+  const isWj = state.company === 'workjapan';
 
-  const stages = [
+  const stages = isWj ? [
     {
       anchor: 'stage-awareness',
       num: 1,
@@ -271,6 +281,47 @@ function renderFunnelPipeline(journeys, platform, applicants, social, users, del
       value: formatNum(applicants?.latest?.selected ?? applicants?.kpis?.selected),
       detail: `${formatNum(applicants?.latest?.interviews_fixed)} interviews`,
       deltaKey: 'selected',
+    },
+  ] : [
+    {
+      anchor: 'stage-awareness',
+      num: 1,
+      label: 'Awareness',
+      value: formatNum(awareness?.kpis?.awarenessTotalViews),
+      detail: `${formatNum(awareness?.kpis?.gscImpressions)} GSC impressions · ${formatNum(awareness?.kpis?.socialChannelViews)} social views`,
+      deltaKey: 'awarenessTotalViews',
+    },
+    {
+      anchor: 'stage-consideration',
+      num: 2,
+      label: 'Consideration',
+      value: formatNum(users?.kpis?.totalUsers),
+      detail: `${formatNum(deltas?.appDownloads?.value)} app downloads`,
+      deltaKey: 'totalUsers',
+    },
+    {
+      anchor: 'stage-commit-nyuuly',
+      num: 3,
+      label: 'Commit',
+      value: formatNum(nyuulyCommit?.nyuulySubscribe),
+      detail: `${formatNum(nyuulyCommit?.compassStarted)} Compass started`,
+      deltaKey: 'nyuulySubscribe',
+    },
+    {
+      anchor: 'stage-proceed-nyuuly',
+      num: 4,
+      label: 'Proceed (Uses)',
+      value: formatNum(nyuulyProceed?.addToCart),
+      detail: `${formatNum(nyuulyProceed?.compassFilled)} Compass filled`,
+      deltaKey: 'addToCart',
+    },
+    {
+      anchor: 'stage-result-nyuuly',
+      num: 5,
+      label: 'Result',
+      value: formatNum(nyuulyResult?.mobileSimPurchased),
+      detail: `${formatNum(nyuulyResult?.formFilled)} forms filled`,
+      deltaKey: 'mobileSimPurchased',
     },
   ];
 
@@ -348,7 +399,7 @@ function renderChartConsiderationWebUsers(history) {
       datasets: [{
         label: 'Total users',
         data,
-        backgroundColor: '#4F8EF7',
+        backgroundColor: companyBrandColor(),
       }],
     },
     options: {
@@ -388,28 +439,250 @@ function renderChartConsiderationAppDownloads(history) {
   });
 }
 
-function renderConsiderationRegistrationBlockShell(registrations) {
+function renderNyuulyCommitSection(stats, historyData, deltas, monthly) {
+  const kpiEl = document.getElementById('nyuulyCommitKpis');
+  if (!kpiEl || state.company !== 'nyuuly') return;
+
+  const kpis = stats?.kpis || {};
+  const hasData = kpis.nyuulySubscribe > 0 || kpis.compassStarted > 0;
+
+  if (!hasData) {
+    kpiEl.innerHTML = '<div class="empty-state">No commit data — <a href="/upload">enter Nyuuly Subscribe and Compass started on the upload page</a></div>';
+  } else {
+    kpiEl.innerHTML = `
+      ${monthly?.monthLabel ? `<span class="consideration-audience-period">This month: ${monthly.monthLabel}${monthly.prevMonthLabel ? ` · compared to ${monthly.prevMonthLabel}` : ''}</span>` : ''}
+      <div class="kpi-card"><div class="label">Nyuuly Subscribe</div><div class="value">${formatNum(kpis.nyuulySubscribe)}</div>${deltaBadge(deltas, 'nyuulySubscribe')}</div>
+      <div class="kpi-card"><div class="label">Compass Started</div><div class="value">${formatNum(kpis.compassStarted)}</div>${deltaBadge(deltas, 'compassStarted')}</div>
+    `;
+  }
+
+  renderChartNyuulyCommit(historyData?.history || []);
+}
+
+function renderChartNyuulyCommit(history) {
+  destroyChart('chartNyuulyCommit');
+  const ctx = document.getElementById('chartNyuulyCommit');
+  if (!ctx || !history?.length) return;
+
+  const hasData = history.some((h) => h.nyuulySubscribe > 0 || h.compassStarted > 0);
+  if (!hasData) return;
+
+  const labels = history.map((h) => h.label.replace(/^\d{4}\s/, ''));
+  charts.chartNyuulyCommit = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Nyuuly Subscribe',
+          data: history.map((h) => h.nyuulySubscribe || 0),
+          borderColor: COLORS.nyuuly,
+          backgroundColor: COLORS.nyuuly,
+          tension: 0.3,
+          pointRadius: 4,
+        },
+        {
+          label: 'Compass Started',
+          data: history.map((h) => h.compassStarted || 0),
+          borderColor: '#34d399',
+          backgroundColor: '#34d399',
+          tension: 0.3,
+          pointRadius: 4,
+        },
+      ],
+    },
+    options: {
+      ...chartDefaults(),
+      scales: {
+        x: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
+        y: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid }, beginAtZero: true },
+      },
+    },
+  });
+}
+
+function renderNyuulyProceedSection(stats, historyData, deltas, monthly) {
+  const kpiEl = document.getElementById('nyuulyProceedKpis');
+  if (!kpiEl || state.company !== 'nyuuly') return;
+
+  const kpis = stats?.kpis || {};
+  const hasData = kpis.addToCart > 0 || kpis.welcomePackageStarted > 0 || kpis.compassFilled > 0;
+
+  if (!hasData) {
+    kpiEl.innerHTML = '<div class="empty-state">No proceed data — <a href="/upload">enter Add to cart, Welcome package, and Compass filled on the upload page</a></div>';
+  } else {
+    kpiEl.innerHTML = `
+      ${monthly?.monthLabel ? `<span class="consideration-audience-period">This month: ${monthly.monthLabel}${monthly.prevMonthLabel ? ` · compared to ${monthly.prevMonthLabel}` : ''}</span>` : ''}
+      <div class="kpi-card"><div class="label">Add to cart</div><div class="value">${formatNum(kpis.addToCart)}</div>${deltaBadge(deltas, 'addToCart')}</div>
+      <div class="kpi-card"><div class="label">Welcome package process started</div><div class="value">${formatNum(kpis.welcomePackageStarted)}</div>${deltaBadge(deltas, 'welcomePackageStarted')}</div>
+      <div class="kpi-card"><div class="label">Compass filled</div><div class="value">${formatNum(kpis.compassFilled)}</div>${deltaBadge(deltas, 'compassFilled')}</div>
+    `;
+  }
+
+  renderChartNyuulyProceed(historyData?.history || []);
+}
+
+function renderChartNyuulyProceed(history) {
+  destroyChart('chartNyuulyProceed');
+  const ctx = document.getElementById('chartNyuulyProceed');
+  if (!ctx || !history?.length) return;
+
+  const hasData = history.some((h) => h.addToCart > 0 || h.welcomePackageStarted > 0 || h.compassFilled > 0);
+  if (!hasData) return;
+
+  const labels = history.map((h) => h.label.replace(/^\d{4}\s/, ''));
+  charts.chartNyuulyProceed = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Add to cart',
+          data: history.map((h) => h.addToCart || 0),
+          borderColor: COLORS.nyuuly,
+          backgroundColor: COLORS.nyuuly,
+          tension: 0.3,
+          pointRadius: 4,
+        },
+        {
+          label: 'Welcome package process started',
+          data: history.map((h) => h.welcomePackageStarted || 0),
+          borderColor: '#a78bfa',
+          backgroundColor: '#a78bfa',
+          tension: 0.3,
+          pointRadius: 4,
+        },
+        {
+          label: 'Compass filled',
+          data: history.map((h) => h.compassFilled || 0),
+          borderColor: '#34d399',
+          backgroundColor: '#34d399',
+          tension: 0.3,
+          pointRadius: 4,
+        },
+      ],
+    },
+    options: {
+      ...chartDefaults(),
+      scales: {
+        x: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
+        y: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid }, beginAtZero: true },
+      },
+    },
+  });
+}
+
+function renderNyuulyResultSection(stats, historyData, deltas, monthly) {
+  const kpiEl = document.getElementById('nyuulyResultKpis');
+  if (!kpiEl || state.company !== 'nyuuly') return;
+
+  const kpis = stats?.kpis || {};
+  const hasData = kpis.mobileSimPurchased > 0 || kpis.welcomePackagePurchased > 0
+    || kpis.formFilled > 0 || kpis.askMeRequest > 0;
+
+  if (!hasData) {
+    kpiEl.innerHTML = '<div class="empty-state">No result data — <a href="/upload">enter Mobile Sim, Welcome package, Form filled, and Ask me request on the upload page</a></div>';
+  } else {
+    kpiEl.innerHTML = `
+      ${monthly?.monthLabel ? `<span class="consideration-audience-period">This month: ${monthly.monthLabel}${monthly.prevMonthLabel ? ` · compared to ${monthly.prevMonthLabel}` : ''}</span>` : ''}
+      <div class="kpi-card"><div class="label">Mobile Sim purchased</div><div class="value">${formatNum(kpis.mobileSimPurchased)}</div>${deltaBadge(deltas, 'mobileSimPurchased')}</div>
+      <div class="kpi-card"><div class="label">Welcome package purchased</div><div class="value">${formatNum(kpis.welcomePackagePurchased)}</div>${deltaBadge(deltas, 'welcomePackagePurchased')}</div>
+      <div class="kpi-card"><div class="label">Form filled</div><div class="value">${formatNum(kpis.formFilled)}</div>${deltaBadge(deltas, 'formFilled')}</div>
+      <div class="kpi-card"><div class="label">Ask me request</div><div class="value">${formatNum(kpis.askMeRequest)}</div>${deltaBadge(deltas, 'askMeRequest')}</div>
+    `;
+  }
+
+  renderChartNyuulyResult(historyData?.history || []);
+}
+
+function renderChartNyuulyResult(history) {
+  destroyChart('chartNyuulyResult');
+  const ctx = document.getElementById('chartNyuulyResult');
+  if (!ctx || !history?.length) return;
+
+  const hasData = history.some((h) => h.mobileSimPurchased > 0 || h.welcomePackagePurchased > 0
+    || h.formFilled > 0 || h.askMeRequest > 0);
+  if (!hasData) return;
+
+  const labels = history.map((h) => h.label.replace(/^\d{4}\s/, ''));
+  charts.chartNyuulyResult = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Mobile Sim purchased',
+          data: history.map((h) => h.mobileSimPurchased || 0),
+          borderColor: COLORS.nyuuly,
+          backgroundColor: COLORS.nyuuly,
+          tension: 0.3,
+          pointRadius: 4,
+        },
+        {
+          label: 'Welcome package purchased',
+          data: history.map((h) => h.welcomePackagePurchased || 0),
+          borderColor: '#a78bfa',
+          backgroundColor: '#a78bfa',
+          tension: 0.3,
+          pointRadius: 4,
+        },
+        {
+          label: 'Form filled',
+          data: history.map((h) => h.formFilled || 0),
+          borderColor: '#34d399',
+          backgroundColor: '#34d399',
+          tension: 0.3,
+          pointRadius: 4,
+        },
+        {
+          label: 'Ask me request',
+          data: history.map((h) => h.askMeRequest || 0),
+          borderColor: '#fbbf24',
+          backgroundColor: '#fbbf24',
+          tension: 0.3,
+          pointRadius: 4,
+        },
+      ],
+    },
+    options: {
+      ...chartDefaults(),
+      scales: {
+        x: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
+        y: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid }, beginAtZero: true },
+      },
+    },
+  });
+}
+
+function renderCommitRegistrationBlockShell(registrations) {
   const periodHint = registrations
     ? `<strong>${registrations.monthLabel}</strong> · ${registrations.periodLabel}${registrations.isPartialMonth ? ` · <span class="partial-month-badge">Partial month (${registrations.daysInPeriod} of ${registrations.daysInMonth} days)</span>` : ''}`
-    : 'Enter platform registrations on the <a href="/upload">upload page</a>.';
+    : 'Enter platform registrations and applicant stats on the <a href="/upload">upload page</a>.';
 
   return `
     <div class="consideration-panel full-width consideration-registrations">
-      <h4>Registration funnel — Impressions to sign-ups</h4>
+      <h4>Commit — Registrations &amp; Applications</h4>
       <p class="subsection-hint">${periodHint}</p>
-      <div id="considerationRegFunnelKpi"></div>
+
+      <h4 class="subsection-title">Total registrations (Web + iOS + Android)</h4>
+      <p class="subsection-hint">Combined sign-ups across all platforms — last 6 months.</p>
+      <div id="commitTotalRegKpi"></div>
       <div class="chart-container consideration-chart">
-        <div class="chart-header"><h3>Impressions → Users → Registrations</h3><button class="chart-download" data-chart="chartConsiderationRegFunnel">PNG</button></div>
-        <div class="chart-wrapper"><canvas id="chartConsiderationRegFunnel"></canvas></div>
+        <div class="chart-header"><h3>Total registrations by month</h3><button class="chart-download" data-chart="chartCommitTotalRegistrations">PNG</button></div>
+        <div class="chart-wrapper"><canvas id="chartCommitTotalRegistrations"></canvas></div>
       </div>
 
-      <h4 class="subsection-title consideration-reg-platform-title">Registrations by platform</h4>
-      <p class="subsection-hint">Web, iOS, and Android sign-ups (manual upload) — last 6 months with month-over-month comparison.</p>
-      <div id="considerationPlatformRegKpi"></div>
+      <h4 class="subsection-title consideration-reg-platform-title">Applications — total &amp; unique</h4>
+      <p class="subsection-hint">Total applications and unique applicants from manual uploads — last 6 months.</p>
+      <div id="commitApplicationsKpi"></div>
       <div class="chart-container consideration-chart">
-        <div class="chart-header"><h3>Registrations by platform</h3><button class="chart-download" data-chart="chartConsiderationPlatformRegs">PNG</button></div>
-        <div class="chart-wrapper"><canvas id="chartConsiderationPlatformRegs"></canvas></div>
+        <div class="chart-header"><h3>Applications by month</h3><button class="chart-download" data-chart="chartCommitApplications">PNG</button></div>
+        <div class="chart-wrapper"><canvas id="chartCommitApplications"></canvas></div>
       </div>
+
+      <h4 class="subsection-title consideration-reg-platform-title">Conversion funnel — this month</h4>
+      <p class="subsection-hint">Top impressions → website users → registrations → applications.</p>
+      <div id="commitVerticalFunnel" class="commit-funnel-vertical"></div>
     </div>
   `;
 }
@@ -424,122 +697,112 @@ function platformRegDeltaBadge(current, previous) {
   return '<span class="kpi-delta kpi-delta-flat">0.0% vs last month</span>';
 }
 
-function renderConsiderationRegistrationCharts(regContext) {
+function renderCommitRegistrationCharts(regContext) {
   if (!regContext) return;
-  const { funnelMetrics, platformHistory, deltas, monthly } = regContext;
-  const history = platformHistory?.history || [];
+  const { funnelMetrics, platformHistory, applicantHistory, deltas, monthly } = regContext;
+  const platHist = platformHistory?.history || [];
+  const appHist = applicantHistory?.history || [];
 
-  const funnelKpiEl = document.getElementById('considerationRegFunnelKpi');
-  if (funnelKpiEl && funnelMetrics) {
-    const { impressions, users, registrations } = funnelMetrics;
-    const impToUser = impressions > 0 ? formatPct((users / impressions) * 100) : '—';
-    const userToReg = users > 0 ? formatPct((registrations / users) * 100) : '—';
-    funnelKpiEl.innerHTML = `
-      <div class="consideration-reg-kpi-row">
-        <div class="consideration-audience-summary">
-          <span class="consideration-audience-label">Total impressions</span>
-          <span class="consideration-audience-value">${formatNum(impressions)}</span>
-          ${deltaBadgeMoM(deltas, 'awarenessTotalViews')}
-        </div>
-        <div class="consideration-audience-summary">
-          <span class="consideration-audience-label">Total users</span>
-          <span class="consideration-audience-value">${formatNum(users)}</span>
-          ${deltaBadgeMoM(deltas, 'totalUsers')}
-        </div>
-        <div class="consideration-audience-summary">
-          <span class="consideration-audience-label">Total registrations</span>
-          <span class="consideration-audience-value">${formatNum(registrations)}</span>
-          ${deltaBadgeMoM(deltas, 'registrations')}
-        </div>
-      </div>
-      <p class="consideration-funnel-rates">Impressions → users: <strong>${impToUser}</strong> · Users → registrations: <strong>${userToReg}</strong></p>
-    `;
-  }
-
-  const platformKpiEl = document.getElementById('considerationPlatformRegKpi');
-  if (platformKpiEl) {
-    const monthKey = state.month;
-    const idx = history.findIndex((h) => h.month === monthKey);
-    const currIdx = idx >= 0 ? idx : history.length - 1;
-    const curr = currIdx >= 0 ? history[currIdx] : null;
-    const prev = currIdx > 0 ? history[currIdx - 1] : null;
-    const platforms = ['Web', 'iOS', 'Android'];
-
+  const totalRegKpiEl = document.getElementById('commitTotalRegKpi');
+  if (totalRegKpiEl) {
     const periodBits = [];
     if (monthly?.monthLabel) periodBits.push(`This month: ${monthly.monthLabel}`);
     if (monthly?.prevMonthLabel) periodBits.push(`compared to ${monthly.prevMonthLabel}`);
-
-    platformKpiEl.innerHTML = `
+    totalRegKpiEl.innerHTML = `
       ${periodBits.length ? `<span class="consideration-audience-period">${periodBits.join(' · ')}</span>` : ''}
-      <div class="consideration-reg-kpi-row">
-        ${platforms.map((platform) => {
-          const currVal = curr?.platforms?.find((p) => p.platform === platform)?.registrations || 0;
-          const prevVal = prev?.platforms?.find((p) => p.platform === platform)?.registrations;
-          return `
-            <div class="consideration-audience-summary">
-              <span class="consideration-audience-label">${platform}</span>
-              <span class="consideration-audience-value">${formatNum(currVal)}</span>
-              ${platformRegDeltaBadge(currVal, prevVal)}
-            </div>
-          `;
-        }).join('')}
+      <div class="consideration-audience-summary">
+        <span class="consideration-audience-label">Total registrations</span>
+        <span class="consideration-audience-value">${formatNum(funnelMetrics?.registrations || 0)}</span>
+        ${deltaBadgeMoM(deltas, 'registrations')}
       </div>
     `;
   }
 
-  renderChartConsiderationRegFunnel(funnelMetrics);
-  renderChartConsiderationPlatformRegs(history);
+  const appKpiEl = document.getElementById('commitApplicationsKpi');
+  if (appKpiEl) {
+    const monthKey = state.month;
+    const idx = appHist.findIndex((h) => h.month === monthKey);
+    const currIdx = idx >= 0 ? idx : appHist.length - 1;
+    const curr = currIdx >= 0 ? appHist[currIdx] : null;
+    const prev = currIdx > 0 ? appHist[currIdx - 1] : null;
+    const totalApps = curr?.totalApplications || 0;
+    const uniqueApps = curr?.uniqueApplicants || 0;
+    const prevTotal = prev?.totalApplications;
+    const prevUnique = prev?.uniqueApplicants;
+
+    appKpiEl.innerHTML = `
+      ${monthly?.monthLabel ? `<span class="consideration-audience-period">This month: ${monthly.monthLabel}${monthly.prevMonthLabel ? ` · compared to ${monthly.prevMonthLabel}` : ''}</span>` : ''}
+      <div class="consideration-reg-kpi-row">
+        <div class="consideration-audience-summary">
+          <span class="consideration-audience-label">Total applications</span>
+          <span class="consideration-audience-value">${formatNum(totalApps)}</span>
+          ${platformRegDeltaBadge(totalApps, prevTotal)}
+        </div>
+        <div class="consideration-audience-summary">
+          <span class="consideration-audience-label">Unique applicants</span>
+          <span class="consideration-audience-value">${formatNum(uniqueApps)}</span>
+          ${platformRegDeltaBadge(uniqueApps, prevUnique)}
+        </div>
+      </div>
+    `;
+  }
+
+  renderChartCommitTotalRegistrations(platHist);
+  renderChartCommitApplications(appHist);
+  renderCommitVerticalFunnel(funnelMetrics);
 }
 
-function renderChartConsiderationRegFunnel(funnelMetrics) {
-  destroyChart('chartConsiderationRegFunnel');
-  const ctx = document.getElementById('chartConsiderationRegFunnel');
-  if (!ctx || !funnelMetrics) return;
+function renderChartCommitTotalRegistrations(history) {
+  destroyChart('chartCommitTotalRegistrations');
+  const ctx = document.getElementById('chartCommitTotalRegistrations');
+  if (!ctx || !history?.length) return;
 
-  const steps = [
-    { label: 'Total impressions', value: funnelMetrics.impressions || 0 },
-    { label: 'Total users', value: funnelMetrics.users || 0 },
-    { label: 'Total registrations', value: funnelMetrics.registrations || 0 },
-  ];
-  if (!steps.some((s) => s.value > 0)) return;
+  const labels = history.map((h) => h.label.replace(/^\d{4}\s/, ''));
+  const data = history.map((h) => h.totalRegistrations || 0);
+  if (!data.some((v) => v > 0)) return;
 
-  charts.chartConsiderationRegFunnel = new Chart(ctx, {
+  charts.chartCommitTotalRegistrations = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: steps.map((s) => s.label),
+      labels,
       datasets: [{
-        label: 'Count',
-        data: steps.map((s) => s.value),
-        backgroundColor: ['#4F8EF7', '#FF6B35', '#34d399'],
+        label: 'Total registrations',
+        data,
+        backgroundColor: '#34d399',
       }],
     },
     options: {
       ...chartDefaults(),
-      indexAxis: 'y',
       plugins: { ...chartDefaults().plugins, legend: { display: false } },
     },
   });
 }
 
-function renderChartConsiderationPlatformRegs(history) {
-  destroyChart('chartConsiderationPlatformRegs');
-  const ctx = document.getElementById('chartConsiderationPlatformRegs');
+function renderChartCommitApplications(history) {
+  destroyChart('chartCommitApplications');
+  const ctx = document.getElementById('chartCommitApplications');
   if (!ctx || !history?.length) return;
 
   const labels = history.map((h) => h.label.replace(/^\d{4}\s/, ''));
-  const platforms = ['Web', 'iOS', 'Android'];
-  const hasData = history.some((h) => h.platforms?.some((p) => p.registrations > 0));
+  const hasData = history.some((h) => h.totalApplications > 0 || h.uniqueApplicants > 0);
   if (!hasData) return;
 
-  charts.chartConsiderationPlatformRegs = new Chart(ctx, {
+  charts.chartCommitApplications = new Chart(ctx, {
     type: 'bar',
     data: {
       labels,
-      datasets: platforms.map((platform) => ({
-        label: platform,
-        data: history.map((h) => h.platforms?.find((p) => p.platform === platform)?.registrations || 0),
-        backgroundColor: COLORS.platform[platform] || COLORS.workjapan,
-      })),
+      datasets: [
+        {
+          label: 'Total applications',
+          data: history.map((h) => h.totalApplications || 0),
+          backgroundColor: COLORS.workjapan,
+        },
+        {
+          label: 'Unique applicants',
+          data: history.map((h) => h.uniqueApplicants || 0),
+          backgroundColor: COLORS.nyuuly,
+        },
+      ],
     },
     options: {
       ...chartDefaults(),
@@ -551,40 +814,65 @@ function renderChartConsiderationPlatformRegs(history) {
   });
 }
 
-function renderConsiderationInsights(consideration, regContext) {
-  const el = document.getElementById('considerationInsights');
-  if (!el || state.company !== 'workjapan') return;
+function renderCommitVerticalFunnel(funnelMetrics) {
+  const el = document.getElementById('commitVerticalFunnel');
+  if (!el || !funnelMetrics) return;
 
-  const hasFunnel = consideration?.fullFunnel?.length;
-  const hasRegistrations = consideration?.registrations;
-
-  if (!hasFunnel && !hasRegistrations) {
-    el.innerHTML = `
-      <div class="consideration-hub-inner">
-        ${renderConsiderationRegistrationBlockShell(null)}
-        <div class="highlight-panel empty">
-          Upload the <strong>Pages CSV</strong> and enter <strong>platform registrations</strong> on the <a href="/upload">upload page</a>.
-        </div>
-      </div>`;
-    renderConsiderationRegistrationCharts(regContext);
-    bindConsiderationChartDownloads(el);
+  const steps = [
+    { label: 'Total impressions', value: funnelMetrics.impressions || 0, color: '#4F8EF7' },
+    { label: 'Website users', value: funnelMetrics.users || 0, color: '#FF6B35' },
+    { label: 'Registrations', value: funnelMetrics.registrations || 0, color: '#34d399' },
+    { label: 'Applications', value: funnelMetrics.applications || 0, color: '#facc15' },
+  ];
+  if (!steps.some((s) => s.value > 0)) {
+    el.innerHTML = '<p class="empty-state">Upload GSC, User Acquisition, platform registrations, and applicant stats to see the funnel.</p>';
     return;
   }
+
+  const max = Math.max(...steps.map((s) => s.value), 1);
+  el.innerHTML = steps.map((step, i) => {
+    const widthPct = Math.max(12, Math.round((step.value / max) * 100));
+    const prev = i > 0 ? steps[i - 1].value : null;
+    const conv = prev > 0 ? formatPct((step.value / prev) * 100) : null;
+    const connector = i > 0
+      ? `<div class="commit-funnel-arrow"><span>↓ ${conv} from previous step</span></div>`
+      : '';
+    return `
+      ${connector}
+      <div class="commit-funnel-step" style="--funnel-width: ${widthPct}%; --funnel-color: ${step.color}">
+        <span class="commit-funnel-step-label">${step.label}</span>
+        <span class="commit-funnel-step-value">${formatNum(step.value)}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderCommitRegistration(regContext, registrations) {
+  const el = document.getElementById('commitRegistration');
+  if (!el || state.company !== 'workjapan') return;
+  el.innerHTML = `<div class="consideration-hub-inner">${renderCommitRegistrationBlockShell(registrations)}</div>`;
+  renderCommitRegistrationCharts(regContext);
+  bindConsiderationChartDownloads(el);
+}
+
+function renderConsiderationInsights(consideration) {
+  const el = document.getElementById('considerationInsights');
+  if (!el) return;
+
+  const hasFunnel = consideration?.fullFunnel?.length;
+  const isWj = state.company === 'workjapan';
 
   if (!hasFunnel) {
     el.innerHTML = `
       <div class="consideration-hub-inner">
-        ${renderConsiderationRegistrationBlockShell(consideration.registrations)}
-        <div class="highlight-panel empty">Upload the <strong>Pages CSV</strong> to add navigation and landing page analysis.</div>
+        <div class="highlight-panel empty">Upload the <strong>Pages CSV</strong> and <strong>User Acquisition CSV</strong> on the <a href="/upload">upload page</a>.</div>
       </div>`;
-    renderConsiderationRegistrationCharts(regContext);
     bindConsiderationChartDownloads(el);
     return;
   }
 
   el.innerHTML = `
     <div class="consideration-hub-inner">
-      ${renderConsiderationRegistrationBlockShell(consideration.registrations)}
 
       <div class="consideration-grid">
         <div class="consideration-panel">
@@ -641,38 +929,7 @@ function renderConsiderationInsights(consideration, regContext) {
         </table></div>
       </div>
 
-      <div class="consideration-panel full-width">
-        <h4>Three customer journeys in consideration</h4>
-        <div class="journey-cards-row">${(consideration.journeyCards || []).map((card) => `
-          <div class="journey-mini-card">
-            <h5>${card.title}</h5>
-            <p class="journey-mini-desc">${card.description}</p>
-            ${card.id === 'browse-jobs' ? `
-              <div class="journey-mini-kpis">
-                <span>${formatNum(card.pageViews)} views</span>
-                <span>${formatNum(card.estimatedBrowseOnly)} browse-only</span>
-              </div>
-              ${card.topPages?.length ? `<div class="journey-mini-pages">Top: ${card.topPages.map((p) => `<code>${p.path}</code>`).join(', ')}</div>` : ''}
-            ` : ''}
-            ${card.id === 'job-detail' ? `
-              <div class="journey-mini-kpis">
-                <span>${formatNum(card.pageViews)} job views</span>
-                <span>${formatNum(card.uniqueJobPages)} job pages</span>
-              </div>
-              ${card.topCategories?.length ? `<div class="journey-mini-pages">Top categories: ${card.topCategories.map((c) => c.category).join(', ')}</div>` : ''}
-            ` : ''}
-            ${card.id === 'seeker-application' ? `
-              <div class="journey-mini-kpis">
-                <span>${formatNum(card.started)} started</span>
-                <span>${formatNum(card.completed)} reached dashboard</span>
-              </div>
-              ${card.biggestDropOff ? `<div class="journey-mini-drop">Worst: ${card.biggestDropOff.step} (−${formatPct(card.biggestDropOff.pct)})</div>` : ''}
-            ` : ''}
-          </div>
-        `).join('')}</div>
-      </div>
-
-      ${consideration.topJobCategories?.length ? `
+      ${consideration.topJobCategories?.length && isWj ? `
         <div class="consideration-panel full-width">
           <h4>Most viewed job categories</h4>
           <p class="subsection-hint">If certain visa types leave more often, compare categories here with visa data in Customer Intelligence.</p>
@@ -687,7 +944,6 @@ function renderConsiderationInsights(consideration, regContext) {
     </div>
   `;
 
-  renderConsiderationRegistrationCharts(regContext);
   bindConsiderationChartDownloads(el);
 }
 
@@ -750,119 +1006,6 @@ function renderCommitBarriers(intelligence) {
       </div>
     </div>
   `;
-}
-
-function renderEmployerPanel(journeys) {
-  const el = document.getElementById('employerPanel');
-  if (!el || state.company !== 'workjapan') return;
-
-  const employer = journeyById(journeys, 'employer');
-  if (!employer) {
-    el.innerHTML = '<div class="empty-state">No employer journey data.</div>';
-    return;
-  }
-
-  el.innerHTML = `
-    <p class="subsection-hint">${employer.description} Employer backend metrics (hires, job posts live) are not in GA4 — add manual entry later if needed.</p>
-    <div class="kpi-row">
-      <div class="kpi-card"><div class="label">Employer Page Views</div><div class="value">${formatNum(employer.kpis?.pageViews)}</div></div>
-      <div class="kpi-card"><div class="label">Active Users</div><div class="value">${formatNum(employer.kpis?.activeUsers)}</div></div>
-    </div>
-    <h4 class="subsection-title">Top Employer Pages</h4>
-    ${renderPageListTable(employer.topPages)}
-    <p class="journey-note">This is a separate customer type from job seekers. Do not compare employer numbers directly to the 5-stage seeker funnel above.</p>
-  `;
-}
-
-function renderIntelligencePanel(intelligence) {
-  const el = document.getElementById('intelligencePanel');
-  if (!el || state.company !== 'workjapan') return;
-
-  const hasData = intelligence?.geo?.rows?.length
-    || intelligence?.visa?.rows?.length
-    || intelligence?.nationality?.rows?.length;
-
-  if (!hasData) {
-    el.innerHTML = '<div class="empty-state">No intelligence data yet — enter nationality, visa, geography, and barriers on the <a href="/upload">upload page</a>.</div>';
-    return;
-  }
-
-  const visaRows = intelligence.visa?.byType || [];
-  const natTop = intelligence.nationality?.top || [];
-
-  el.innerHTML = `
-    <div class="highlight-grid">
-      ${visaRows.map((v) => `
-        <div class="highlight-card ${v.abandonmentRate > 30 ? 'abandon-red' : ''}">
-          <div class="highlight-label">${v.visa_type}</div>
-          <div class="highlight-value">${v.abandonmentRate != null ? formatPct(v.abandonmentRate) : '—'}</div>
-          <div class="highlight-sub">abandonment · ${formatDelta(v.vsAvgPct)}</div>
-          <div class="highlight-sub">${formatNum(v.latest?.registrations)} reg · ${formatNum(v.latest?.abandonments)} abandon</div>
-        </div>
-      `).join('')}
-    </div>
-    ${natTop.length ? `
-      <h4 class="subsection-title">Top nationalities (${intelligence.nationality.latestMonth || 'latest'})</h4>
-      <div class="table-wrap"><table>
-        <thead><tr><th>Nationality</th><th>Visitors</th><th>Registrations</th><th>vs 6mo avg</th></tr></thead>
-        <tbody>${natTop.map((n) => `
-          <tr>
-            <td>${n.nationality}</td>
-            <td>${formatNum(n.visitors)}</td>
-            <td>${formatNum(n.registrations)}</td>
-            <td>${formatDelta(n.vsAvgPct)}</td>
-          </tr>
-        `).join('')}</tbody>
-      </table></div>
-    ` : ''}
-  `;
-}
-
-function renderChartVisaAbandon(byType) {
-  destroyChart('chartVisaAbandon');
-  const ctx = document.getElementById('chartVisaAbandon');
-  if (!ctx || !byType?.length) return;
-  const withData = byType.filter((v) => v.abandonmentRate != null);
-  if (!withData.length) return;
-
-  charts.chartVisaAbandon = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: withData.map((v) => v.visa_type),
-      datasets: [
-        {
-          label: 'Abandonment % (latest)',
-          data: withData.map((v) => v.abandonmentRate),
-          backgroundColor: withData.map((v) => (v.abandonmentRate > 30 ? '#ef4444' : COLORS.workjapan)),
-        },
-        {
-          label: '6-month avg %',
-          data: withData.map((v) => v.avgAbandonmentRate6mo || 0),
-          backgroundColor: 'rgba(136, 146, 176, 0.4)',
-        },
-      ],
-    },
-    options: chartDefaults(),
-  });
-}
-
-function renderChartNationality(top) {
-  destroyChart('chartNationality');
-  const ctx = document.getElementById('chartNationality');
-  if (!ctx || !top?.length) return;
-
-  charts.chartNationality = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: top.map((n) => n.nationality),
-      datasets: [{
-        label: 'Visitors',
-        data: top.map((n) => n.visitors),
-        backgroundColor: COLORS.nyuuly,
-      }],
-    },
-    options: chartDefaults(),
-  });
 }
 
 function renderSocialAccountsTable(byAccount) {
@@ -946,109 +1089,23 @@ function renderApplicantResultKpis(kpis, latest, deltas) {
   }
   const data = latest || kpis;
   el.innerHTML = `
-    <div class="kpi-card"><div class="label">Screening Passes</div><div class="value">${formatNum(data.screening_passes ?? data.screeningPasses)}</div></div>
-    <div class="kpi-card"><div class="label">Interviews Fixed</div><div class="value">${formatNum(data.interviews_fixed ?? data.interviewsFixed)}</div></div>
-    <div class="kpi-card"><div class="label">Remaining ESP</div><div class="value">${formatNum(data.remaining_esp ?? data.remainingEsp)}</div></div>
+    <div class="kpi-card"><div class="label">Screening Passes</div><div class="value">${formatNum(data.screening_passes ?? data.screeningPasses)}</div>${deltaBadge(deltas, 'screeningPasses')}</div>
+    <div class="kpi-card"><div class="label">Interviews Fixed</div><div class="value">${formatNum(data.interviews_fixed ?? data.interviewsFixed)}</div>${deltaBadge(deltas, 'interviewsFixed')}</div>
+    <div class="kpi-card"><div class="label">Remaining ESP</div><div class="value">${formatNum(data.remaining_esp ?? data.remainingEsp)}</div>${deltaBadge(deltas, 'remainingEsp')}</div>
     <div class="kpi-card"><div class="label">Selected</div><div class="value">${formatNum(data.selected)}</div>${deltaBadge(deltas, 'selected')}</div>
-  `;
-}
-
-function renderProceedWebFunnel(journeys) {
-  const el = document.getElementById('proceedWebFunnel');
-  if (!el || state.company !== 'workjapan') return;
-  const seeker = journeyById(journeys, 'seeker-application');
-  if (!seeker?.applicationFunnel?.length) {
-    el.innerHTML = '';
-    return;
-  }
-  el.innerHTML = `
-    <h4 class="subsection-title">Web application path (Pages CSV)</h4>
-    ${renderApplicationFunnel(seeker.applicationFunnel)}
   `;
 }
 
 function renderPlatformKpis(kpis, deltas) {
   const el = document.getElementById('platformKpis');
   if (!el) return;
-  if (!kpis || (!kpis.totalRegistrations && !kpis.totalActiveUsers)) {
-    el.innerHTML = '<div class="empty-state">No platform data — <a href="/upload">enter data on upload page</a></div>';
+  if (!kpis?.totalActiveUsers) {
+    el.innerHTML = '<div class="empty-state">No active user data — <a href="/upload">enter data on upload page</a></div>';
     return;
   }
   el.innerHTML = `
-    <div class="kpi-card"><div class="label">Total Registrations</div><div class="value">${formatNum(kpis.totalRegistrations)}</div>${deltaBadge(deltas, 'registrations')}</div>
     <div class="kpi-card"><div class="label">Total Active Users</div><div class="value">${formatNum(kpis.totalActiveUsers)}</div>${deltaBadge(deltas, 'platformActiveUsers')}</div>
   `;
-}
-
-function renderChartRegistrationsByMonth(byMonth, platforms) {
-  destroyChart('chartRegistrationsByMonth');
-  const ctx = document.getElementById('chartRegistrationsByMonth');
-  if (!ctx || !byMonth?.length) return;
-
-  const labels = byMonth.map((m) => m.month_label);
-  const platformList = platforms?.length ? platforms : ['Web', 'Android', 'iOS'];
-
-  charts.chartRegistrationsByMonth = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: platformList.map((platform) => ({
-        label: platform,
-        data: byMonth.map((month) => {
-          const row = month.platforms?.find((p) => p.platform === platform);
-          return row ? row.registrations : 0;
-        }),
-        backgroundColor: COLORS.platform[platform] || COLORS.nyuuly,
-      })),
-    },
-    options: {
-      ...chartDefaults(),
-      scales: {
-        x: { stacked: false, ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
-        y: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
-      },
-    },
-  });
-}
-
-function renderChartActiveByPlatform(byPlatform) {
-  destroyChart('chartActiveByPlatform');
-  const ctx = document.getElementById('chartActiveByPlatform');
-  if (!ctx || !byPlatform?.length) return;
-
-  charts.chartActiveByPlatform = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: byPlatform.map((p) => p.platform),
-      datasets: [{
-        label: 'Active Users',
-        data: byPlatform.map((p) => p.active_users),
-        backgroundColor: byPlatform.map((p) => COLORS.platform[p.platform] || COLORS.workjapan),
-      }],
-    },
-    options: chartDefaults(),
-  });
-}
-
-function renderPlatformTable(rows) {
-  const table = document.getElementById('platformTable');
-  if (!table) return;
-
-  if (!rows?.length) {
-    table.querySelector('thead').innerHTML = '';
-    table.querySelector('tbody').innerHTML = '<tr><td colspan="4" class="empty-state">No platform data for this date range</td></tr>';
-    return;
-  }
-
-  table.querySelector('thead').innerHTML = '<tr><th>Month</th><th>Platform</th><th>Registrations</th><th>Active Users</th></tr>';
-  table.querySelector('tbody').innerHTML = rows.map((r) => `
-    <tr>
-      <td>${r.month_label}</td>
-      <td>${r.platform}</td>
-      <td>${formatNum(r.registrations)}</td>
-      <td>${formatNum(r.active_users)}</td>
-    </tr>
-  `).join('');
 }
 
 function renderApplicantKpis(kpis, latest) {
@@ -1091,6 +1148,55 @@ function renderChartApplicantFunnel(funnelSteps, monthLabel) {
   });
 }
 
+function renderChartApplicantOutcomes(history) {
+  destroyChart('chartApplicantOutcomes');
+  const ctx = document.getElementById('chartApplicantOutcomes');
+  if (!ctx || !history?.length) return;
+
+  const hasData = history.some((h) =>
+    h.uniqueApplicants > 0
+    || h.screeningPasses > 0
+    || h.totalApplications > 0
+    || h.interviewsFixed > 0
+    || h.remainingEsp > 0
+    || h.selected > 0
+  );
+  if (!hasData) return;
+
+  const labels = history.map((h) => h.label.replace(/^\d{4}\s/, ''));
+  const metrics = [
+    { label: 'Unique Applicants', key: 'uniqueApplicants', color: COLORS.nyuuly },
+    { label: 'Screening Passes', key: 'screeningPasses', color: '#60a5fa' },
+    { label: 'Total Applications', key: 'totalApplications', color: COLORS.workjapan },
+    { label: 'Interviews Fixed', key: 'interviewsFixed', color: '#34d399' },
+    { label: 'Remaining ESP', key: 'remainingEsp', color: '#a78bfa' },
+    { label: 'Selected', key: 'selected', color: '#facc15' },
+  ];
+
+  charts.chartApplicantOutcomes = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: metrics.map((m) => ({
+        label: m.label,
+        data: history.map((h) => h[m.key] || 0),
+        borderColor: m.color,
+        backgroundColor: m.color,
+        tension: 0.3,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+      })),
+    },
+    options: {
+      ...chartDefaults(),
+      scales: {
+        x: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
+        y: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid }, beginAtZero: true },
+      },
+    },
+  });
+}
+
 function renderChartApplicantsByMonth(rows) {
   destroyChart('chartApplicantsByMonth');
   const ctx = document.getElementById('chartApplicantsByMonth');
@@ -1111,40 +1217,6 @@ function renderChartApplicantsByMonth(rows) {
   });
 }
 
-function renderApplicantTable(rows) {
-  const table = document.getElementById('applicantTable');
-  if (!table) return;
-
-  if (!rows?.length) {
-    table.querySelector('thead').innerHTML = '';
-    table.querySelector('tbody').innerHTML = '<tr><td colspan="7" class="empty-state">No applicant data for this date range</td></tr>';
-    return;
-  }
-
-  table.querySelector('thead').innerHTML = `
-    <tr>
-      <th>Month</th>
-      <th>Unique Applicants</th>
-      <th>Screening Passes</th>
-      <th>Total Applications</th>
-      <th>Interviews Fixed</th>
-      <th>Remaining ESP</th>
-      <th>Selected</th>
-    </tr>
-  `;
-  table.querySelector('tbody').innerHTML = rows.map((r) => `
-    <tr>
-      <td>${r.month_label}</td>
-      <td>${formatNum(r.unique_applicants)}</td>
-      <td>${formatNum(r.screening_passes)}</td>
-      <td>${formatNum(r.total_applications)}</td>
-      <td>${formatNum(r.interviews_fixed)}</td>
-      <td>${formatNum(r.remaining_esp)}</td>
-      <td>${formatNum(r.selected)}</td>
-    </tr>
-  `).join('');
-}
-
 function renderDataStatus(completeness) {
   const el = document.getElementById('dataStatusDots');
   if (!completeness) {
@@ -1162,279 +1234,6 @@ function renderDataStatus(completeness) {
     const ok = completeness[key];
     return `<span class="data-dot ${ok ? 'data-dot-ok' : 'data-dot-missing'}" title="${label}: ${ok ? 'loaded' : 'missing'}">${label}</span>`;
   }).join('');
-}
-
-function renderJourneyTabs(journeys) {
-  const tabs = document.getElementById('journeyTabs');
-  tabs.innerHTML = journeys.map((j) => `
-    <button class="journey-tab ${state.activeJourney === j.id ? 'active' : ''} ${j.status === 'future' ? 'future' : ''}"
-      data-journey="${j.id}">
-      ${j.title}
-      ${j.status === 'future' ? '<span class="future-badge">Future</span>' : ''}
-    </button>
-  `).join('');
-
-  tabs.querySelectorAll('.journey-tab').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.activeJourney = btn.dataset.journey;
-      renderJourneyPanel(journeyData);
-      renderJourneyTabs(journeyData.journeys);
-    });
-  });
-}
-
-function renderJourneyPanel(data) {
-  const panel = document.getElementById('journeyPanel');
-  const intro = document.getElementById('journeyIntro');
-  if (intro && data?.companyLabel) {
-    intro.textContent = data.company === 'workjapan'
-      ? 'Optional detail view — the 5-stage funnel above is the primary navigation. Use these tabs for step-by-step exploration of specific paths.'
-      : `${data.companyLabel} customer journeys — built from your 4 weekly CSVs (social, user acquisition, pages, funnel).`;
-  }
-
-  if (!data || !data.journeys?.length) {
-    panel.innerHTML = '<div class="empty-state">Upload all 4 CSV files on the <a href="/upload">upload page</a> to see customer journeys.</div>';
-    return;
-  }
-
-  const journey = data.journeys.find((j) => j.id === state.activeJourney) || data.journeys[0];
-  let html = `
-    <div class="journey-card">
-      <div class="journey-card-header">
-        <div>
-          <h3>${journey.title}</h3>
-          <p class="journey-sources">Sources: ${journey.subtitle}</p>
-        </div>
-        ${journey.status === 'future' ? '<span class="future-badge large">Coming soon</span>' : ''}
-      </div>
-      <p class="journey-desc">${journey.description}</p>
-  `;
-
-  if (journey.id === 'awareness') {
-    const isWj = data.company === 'workjapan';
-    html += `
-      <div class="kpi-row">
-        <div class="kpi-card"><div class="label">Total Awareness Views</div><div class="value">${formatNum(journey.kpis.awarenessTotalViews)}</div></div>
-        <div class="kpi-card"><div class="label">GSC Impressions</div><div class="value">${formatNum(journey.kpis.gscImpressions)}</div></div>
-        <div class="kpi-card"><div class="label">Social Channel Views</div><div class="value">${formatNum(journey.kpis.socialChannelViews)}</div></div>
-        <div class="kpi-card"><div class="label">${isWj ? 'CSV Social Views' : 'Social CSV Views'}</div><div class="value">${formatNum(journey.kpis.socialViews)}</div></div>
-      </div>
-      <h4 class="subsection-title">Social channels (manual)</h4>
-      <div class="table-wrap"><table class="consideration-table">
-        <thead><tr><th>Channel</th><th>Views</th></tr></thead>
-        <tbody>${(journey.kpis.socialChannels || []).map((c) => `
-          <tr><td>${c.channel}</td><td>${formatNum(c.views)}</td></tr>
-        `).join('') || '<tr><td colspan="2" class="empty-state">Enter views on the <a href="/upload">upload page</a></td></tr>'}
-        </tbody>
-      </table></div>
-    `;
-  } else if (journey.id === 'browse-jobs' || journey.id === 'explore-no-action') {
-    html += `
-      <div class="kpi-row">
-        <div class="kpi-card"><div class="label">Exploration Page Views</div><div class="value">${formatNum(journey.kpis.pageViews)}</div></div>
-        <div class="kpi-card"><div class="label">Active Users (browse)</div><div class="value">${formatNum(journey.kpis.activeUsers)}</div></div>
-        <div class="kpi-card"><div class="label">Est. Browse Only</div><div class="value">${formatNum(journey.kpis.estimatedBrowseOnly)}</div></div>
-        <div class="kpi-card"><div class="label">Browse Rate</div><div class="value">${formatPct(journey.kpis.browseRate)}</div></div>
-      </div>
-      ${renderMiniFunnel(journey.ga4Funnel)}
-      <h4 class="subsection-title">Top Exploration Pages</h4>
-      ${renderPageListTable(journey.topPages)}
-      <h4 class="subsection-title">How They Arrived</h4>
-      <div class="channel-chips">${(journey.entryChannels || []).map((c) =>
-        `<span class="channel-chip">${c.channel}: ${formatNum(c.totalUsers)} users</span>`
-      ).join('') || '<span class="channel-chip muted">Upload User Acquisition CSV</span>'}</div>
-    `;
-  } else if (journey.id === 'job-detail') {
-    html += `
-      <div class="kpi-row">
-        <div class="kpi-card"><div class="label">Job Page Views</div><div class="value">${formatNum(journey.kpis.pageViews)}</div></div>
-        <div class="kpi-card"><div class="label">Active Users</div><div class="value">${formatNum(journey.kpis.activeUsers)}</div></div>
-        <div class="kpi-card"><div class="label">Unique Job Pages</div><div class="value">${formatNum(journey.kpis.uniqueJobPages)}</div></div>
-        <div class="kpi-card"><div class="label">Views per User</div><div class="value">${formatNum(journey.kpis.viewsPerUser)}</div></div>
-      </div>
-      <h4 class="subsection-title">Top Job Categories</h4>
-      ${renderJobCategoriesTable(journey.topJobCategories)}
-      <h4 class="subsection-title">Top Individual Job Pages</h4>
-      ${renderPageListTable(journey.topPages)}
-    `;
-  } else if (journey.id === 'register-apply' || journey.id === 'explore-convert') {
-    html += `
-      <div class="kpi-row">
-        <div class="kpi-card"><div class="label">Conversion Page Views</div><div class="value">${formatNum(journey.kpis.pageViews)}</div></div>
-        <div class="kpi-card"><div class="label">Active Users</div><div class="value">${formatNum(journey.kpis.activeUsers)}</div></div>
-        <div class="kpi-card"><div class="label">Key Events</div><div class="value">${formatNum(journey.kpis.keyEvents)}</div></div>
-        <div class="kpi-card"><div class="label">Conversion Rate</div><div class="value">${formatPct(journey.kpis.conversionRate)}</div></div>
-      </div>
-      ${renderMiniFunnel(journey.ga4Funnel)}
-      <h4 class="subsection-title">Sign-up &amp; Subscribe Pages</h4>
-      ${renderPageListTable(journey.topPages, true)}
-    `;
-  } else if (journey.id === 'employer') {
-    html += `
-      <div class="kpi-row">
-        <div class="kpi-card"><div class="label">Employer Page Views</div><div class="value">${formatNum(journey.kpis.pageViews)}</div></div>
-        <div class="kpi-card"><div class="label">Active Users</div><div class="value">${formatNum(journey.kpis.activeUsers)}</div></div>
-      </div>
-      <h4 class="subsection-title">Top Employer Pages</h4>
-      ${renderPageListTable(journey.topPages)}
-    `;
-  } else if (journey.id === 'welcome-package') {
-    html += `
-      <div class="kpi-row">
-        <div class="kpi-card"><div class="label">Welcome Package Views</div><div class="value">${formatNum(journey.kpis.pageViews)}</div></div>
-        <div class="kpi-card"><div class="label">Active Users</div><div class="value">${formatNum(journey.kpis.activeUsers)}</div></div>
-        <div class="kpi-card"><div class="label">Key Events</div><div class="value">${formatNum(journey.kpis.keyEvents)}</div></div>
-      </div>
-      ${renderPageListTable(journey.topPages)}
-      <p class="journey-note">This journey is marked as future — data will grow when the welcome package flow goes live.</p>
-    `;
-  } else if (journey.id === 'seeker-application' || journey.id === 'nyuuly-application' || journey.id === 'wj-application') {
-    html += `
-      <div class="kpi-row">
-        <div class="kpi-card"><div class="label">Funnel Started</div><div class="value">${formatNum(journey.kpis.started)}</div></div>
-        <div class="kpi-card"><div class="label">Reached Last Step</div><div class="value">${formatNum(journey.kpis.completed)}</div></div>
-        <div class="kpi-card"><div class="label">Overall Completion</div><div class="value">${formatPct(journey.kpis.overallCompletion)}</div></div>
-        <div class="kpi-card abandon-red"><div class="label">Biggest Drop-off</div><div class="value" style="font-size:1rem">${journey.kpis.biggestDropOffStep} (${formatPct(journey.kpis.biggestDropOffPct)})</div></div>
-      </div>
-      <h4 class="subsection-title">${data.company === 'workjapan' ? 'Job Seeker Application Steps' : 'Application Steps'} (from Pages CSV)</h4>
-      ${renderApplicationFunnel(journey.applicationFunnel)}
-      ${journey.topJobCategories?.length ? `<h4 class="subsection-title">Top Job Categories in Funnel</h4>${renderJobCategoriesTable(journey.topJobCategories)}` : ''}
-    `;
-  }
-
-  html += `
-    <div class="chart-container journey-chart" id="journeyChartWrap" style="display:none">
-      <div class="chart-header"><h3>Journey Funnel</h3></div>
-      <div class="chart-wrapper"><canvas id="chartJourneyFunnel"></canvas></div>
-    </div>
-  </div>`;
-  panel.innerHTML = html;
-
-  const hasChart = (['seeker-application', 'nyuuly-application', 'wj-application'].includes(journey.id) && journey.applicationFunnel?.length)
-    || (journey.ga4Funnel?.length && !['awareness', 'welcome-package', 'employer', 'job-detail'].includes(journey.id));
-  const chartWrap = document.getElementById('journeyChartWrap');
-  if (chartWrap) chartWrap.style.display = hasChart ? 'block' : 'none';
-  if (hasChart) renderChartJourneyFunnel(journey);
-}
-
-function renderMiniFunnel(steps) {
-  if (!steps?.length) return '<p class="journey-note">Upload funnel CSV for step-by-step drop-off.</p>';
-  return `
-    <h4 class="subsection-title">GA4 Funnel Steps</h4>
-    <div class="mini-funnel">${steps.map((s, i) => `
-      <div class="mini-funnel-step">
-        <div class="mini-funnel-bar" style="width:${Math.max(8, (s.users / (steps[0].users || 1)) * 100)}%"></div>
-        <span class="mini-funnel-label">${s.stepLabel}</span>
-        <span class="mini-funnel-val">${formatNum(s.users)} users</span>
-        ${i > 0 && s.abandonmentRate ? `<span class="mini-funnel-drop abandon-${s.abandonmentRate > 0.3 ? 'red' : 'yellow'}">−${formatPct(s.abandonmentRate)}</span>` : ''}
-      </div>
-    `).join('')}</div>
-  `;
-}
-
-function renderJobCategoriesTable(categories) {
-  if (!categories?.length) return '<p class="journey-note">No job category data.</p>';
-  return `<div class="table-wrap"><table>
-    <thead><tr><th>Job Category</th><th>Job Listings</th><th>Views</th><th>Users</th></tr></thead>
-    <tbody>${categories.map((c) => `
-      <tr>
-        <td>${c.category}</td>
-        <td>${formatNum(c.jobs)}</td>
-        <td>${formatNum(c.views)}</td>
-        <td>${formatNum(c.users)}</td>
-      </tr>
-    `).join('')}</tbody>
-  </table></div>`;
-}
-
-function renderPageListTable(pages, showKeyEvents = false) {
-  if (!pages?.length) return '<p class="journey-note">No matching pages in date range.</p>';
-  const cols = showKeyEvents
-    ? '<th>Page</th><th>Views</th><th>Users</th><th>Key Events</th>'
-    : '<th>Page</th><th>Views</th><th>Users</th><th>Avg Time</th>';
-  return `<div class="table-wrap"><table>
-    <thead><tr>${cols}</tr></thead>
-    <tbody>${pages.map((p) => showKeyEvents
-      ? `<tr><td>${p.path}</td><td>${formatNum(p.views)}</td><td>${formatNum(p.users)}</td><td>${formatNum(p.keyEvents)}</td></tr>`
-      : `<tr><td>${p.path}</td><td>${formatNum(p.views)}</td><td>${formatNum(p.users)}</td><td>${formatNum(p.avgTime)}s</td></tr>`
-    ).join('')}</tbody>
-  </table></div>`;
-}
-
-function renderApplicationFunnel(steps) {
-  if (!steps?.length) return '<p class="journey-note">Upload pages CSV with application paths.</p>';
-  const maxUsers = steps[0]?.users || steps[0]?.views || 1;
-  return `<div class="app-funnel">${steps.map((s, i) => {
-    const users = s.users || s.views;
-    const width = Math.max(10, (users / maxUsers) * 100);
-    const dropClass = s.dropOffPct > 30 ? 'abandon-red' : s.dropOffPct > 10 ? 'abandon-yellow' : 'abandon-green';
-    return `
-      <div class="app-funnel-step">
-        <div class="app-funnel-step-header">
-          <span>${i + 1}. ${s.label}</span>
-          <span class="app-funnel-path">${s.path}</span>
-        </div>
-        <div class="app-funnel-bar-wrap">
-          <div class="app-funnel-bar" style="width:${width}%"></div>
-          <span>${formatNum(users)} users</span>
-        </div>
-        ${i > 0 ? `<div class="app-funnel-drop ${dropClass}">Drop-off: ${formatPct(s.dropOffPct)} · Retained: ${formatPct(s.retentionPct)}</div>` : ''}
-      </div>
-    `;
-  }).join('')}</div>`;
-}
-
-function renderLandingTable(landingPages) {
-  const table = document.getElementById('landingTable');
-  if (!landingPages?.length) {
-    table.querySelector('thead').innerHTML = '';
-    table.querySelector('tbody').innerHTML = '<tr><td colspan="4" class="empty-state">Upload pages CSV to see landing pages</td></tr>';
-    return;
-  }
-  table.querySelector('thead').innerHTML = '<tr><th>Landing Page</th><th>Views</th><th>Users</th><th>Likely Next Pages</th></tr>';
-  table.querySelector('tbody').innerHTML = landingPages.map((p) => `
-    <tr>
-      <td>${p.path}</td>
-      <td>${formatNum(p.views)}</td>
-      <td>${formatNum(p.users)}</td>
-      <td class="next-pages">${(p.nextLikely || []).map((n) => `<code>${n}</code>`).join(' → ') || '—'}</td>
-    </tr>
-  `).join('');
-}
-
-function renderChartJourneyFunnel(journey) {
-  destroyChart('chartJourneyFunnel');
-  const canvas = document.getElementById('chartJourneyFunnel');
-  if (!canvas) return;
-
-  let steps = [];
-  let label = '';
-
-  if (journey.id === 'wj-application' && journey.applicationFunnel?.length) {
-    steps = journey.applicationFunnel;
-    label = 'Users';
-  } else if (journey.ga4Funnel?.length) {
-    steps = journey.ga4Funnel.map((s) => ({ label: s.stepLabel, users: s.users }));
-    label = 'Active Users';
-  }
-
-  if (!steps.length) return;
-
-  charts.chartJourneyFunnel = new Chart(canvas, {
-    type: 'bar',
-    data: {
-      labels: steps.map((s) => s.label || s.stepLabel),
-      datasets: [{
-        label,
-        data: steps.map((s) => s.users || s.views || 0),
-        backgroundColor: COLORS.nyuuly,
-      }],
-    },
-    options: {
-      ...chartDefaults(),
-      indexAxis: 'y',
-    },
-  });
 }
 
 function showCompareSection() {}
@@ -1772,60 +1571,6 @@ function renderChartPostTypes(postTypes) {
   });
 }
 
-function renderChartFunnel(rows) {
-  destroyChart('chartFunnel');
-  const ctx = document.getElementById('chartFunnel');
-  if (!rows.length) return;
-
-  const steps = [...new Set(rows.map(r => r.step))];
-  const devices = ['Desktop', 'Mobile', 'Tablet', 'Total'];
-  const deviceColors = { Desktop: COLORS.nyuuly, Mobile: COLORS.workjapan, Tablet: '#a78bfa', Total: '#34d399' };
-
-  const datasets = devices.map(dev => ({
-    label: dev,
-    data: steps.map(step => {
-      const row = rows.find(r => r.step === step && r.device_category === dev);
-      return row ? row.active_users : 0;
-    }),
-    backgroundColor: deviceColors[dev] || COLORS.nyuuly,
-  }));
-
-  charts.chartFunnel = new Chart(ctx, {
-    type: 'bar',
-    data: { labels: steps.map(s => s.replace(/^\d+\.\s*/, '')), datasets },
-    options: {
-      ...chartDefaults(),
-      indexAxis: 'y',
-      scales: {
-        x: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
-        y: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
-      },
-    },
-  });
-}
-
-function renderChartFunnelDevice(step1Devices) {
-  destroyChart('chartFunnelDevice');
-  const ctx = document.getElementById('chartFunnelDevice');
-  if (!step1Devices.length) return;
-
-  charts.chartFunnelDevice = new Chart(ctx, {
-    type: 'doughnut',
-    data: {
-      labels: step1Devices.map(d => d.device_category),
-      datasets: [{
-        data: step1Devices.map(d => d.active_users),
-        backgroundColor: [COLORS.nyuuly, COLORS.workjapan, '#a78bfa'],
-      }],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: COLORS.text } } },
-    },
-  });
-}
-
 function renderChartUsersDonut(rows) {
   destroyChart('chartUsersDonut');
   const ctx = document.getElementById('chartUsersDonut');
@@ -1847,22 +1592,6 @@ function renderChartUsersDonut(rows) {
   });
 }
 
-function renderChartUsersBar(rows) {
-  destroyChart('chartUsersBar');
-  const ctx = document.getElementById('chartUsersBar');
-  const sorted = [...rows].sort((a, b) => b.new_users - a.new_users);
-  if (!sorted.length) return;
-
-  charts.chartUsersBar = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: sorted.map(r => r.channel_group),
-      datasets: [{ label: 'New Users', data: sorted.map(r => r.new_users), backgroundColor: COLORS.nyuuly }],
-    },
-    options: { ...chartDefaults(), indexAxis: 'y' },
-  });
-}
-
 function renderChartUsersEngagement(rows) {
   destroyChart('chartUsersEngagement');
   const ctx = document.getElementById('chartUsersEngagement');
@@ -1872,61 +1601,9 @@ function renderChartUsersEngagement(rows) {
     type: 'bar',
     data: {
       labels: rows.map(r => r.channel_group),
-      datasets: [{ label: 'Avg Engagement Time (sec)', data: rows.map(r => r.avg_engagement_time), backgroundColor: COLORS.workjapan }],
+      datasets: [{ label: 'Avg Engagement Time (sec)', data: rows.map(r => r.avg_engagement_time), backgroundColor: companyBrandColor() }],
     },
     options: chartDefaults(),
-  });
-}
-
-function renderChartPagesBar(rows) {
-  destroyChart('chartPagesBar');
-  const ctx = document.getElementById('chartPagesBar');
-  const top = rows.slice(0, 15);
-  if (!top.length) return;
-
-  charts.chartPagesBar = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: top.map(r => r.page_path.length > 30 ? r.page_path.slice(0, 30) + '…' : r.page_path),
-      datasets: [{ label: 'Views', data: top.map(r => r.views), backgroundColor: COLORS.nyuuly }],
-    },
-    options: { ...chartDefaults(), indexAxis: 'y' },
-  });
-}
-
-function renderChartPagesScatter(rows) {
-  destroyChart('chartPagesScatter');
-  const ctx = document.getElementById('chartPagesScatter');
-  if (!rows.length) return;
-
-  charts.chartPagesScatter = new Chart(ctx, {
-    type: 'bubble',
-    data: {
-      datasets: [{
-        label: 'Pages',
-        data: rows.map(r => ({
-          x: r.views,
-          y: r.avg_engagement_time,
-          r: Math.max(3, Math.min(20, r.active_users / 2)),
-        })),
-        backgroundColor: COLORS.nyuulyLight,
-        borderColor: COLORS.nyuuly,
-      }],
-    },
-    options: {
-      ...chartDefaults(),
-      plugins: {
-        ...chartDefaults().plugins,
-        tooltip: {
-          callbacks: {
-            label: (ctx) => {
-              const r = rows[ctx.dataIndex];
-              return `${r.page_path}: ${formatNum(r.views)} views, ${formatNum(r.avg_engagement_time)}s avg`;
-            },
-          },
-        },
-      },
-    },
   });
 }
 
@@ -2107,30 +1784,6 @@ function renderSocialTable() {
   });
 }
 
-function renderFunnelTable() {
-  const sorted = sortData(funnelRows, funnelSort);
-  const data = sorted.map(r => ({
-    ...r,
-    _html: `<tr>
-      <td>${r.step || '—'}</td>
-      <td>${r.device_category || '—'}</td>
-      <td>${formatNum(r.active_users)}</td>
-      <td>${formatPct(r.completion_rate)}</td>
-      <td>${formatNum(r.abandonments)}</td>
-      <td class="${abandonClass(r.abandonment_rate)}">${formatPct(r.abandonment_rate)}</td>
-    </tr>`,
-  }));
-
-  renderSortableTable('funnelTable', [
-    { key: 'step', label: 'Step' },
-    { key: 'device_category', label: 'Device' },
-    { key: 'active_users', label: 'Active Users' },
-    { key: 'completion_rate', label: 'Completion Rate' },
-    { key: 'abandonments', label: 'Abandonments' },
-    { key: 'abandonment_rate', label: 'Abandonment Rate' },
-  ], data, funnelSort, () => renderFunnelTable());
-}
-
 function renderUsersTable(rows) {
   if (!rows.length) {
     document.getElementById('usersTable').querySelector('tbody').innerHTML =
@@ -2233,7 +1886,6 @@ async function loadDashboard() {
 
     const fetches = [
       fetchJSON(`/api/social?${q}`),
-      fetchJSON(`/api/funnel?${q}`),
       fetchJSON(`/api/users?${q}`),
       fetchJSON(`/api/pages?${q}`),
       fetchJSON(`/api/journeys?${q}`),
@@ -2247,13 +1899,12 @@ async function loadDashboard() {
       fetches.push(fetchJSON(`/api/platform-stats?${q}`));
       fetches.push(fetchJSON(`/api/applicant-stats?${q}`));
       fetches.push(fetchJSON(`/api/intelligence?${q}`));
-      fetches.push(fetchJSON(`/api/internal-reporting?${q}`));
     }
 
     const results = await Promise.all(fetches);
-    const [social, funnel, users, pages, journeys, guide, gsc, monthly, socialChannels, socialChannelHistory, platform, applicants, intelligence, internalReport] = isWorkJapan
+    const [social, users, pages, journeys, guide, gsc, monthly, socialChannels, socialChannelHistory, platform, applicants, intelligence] = isWorkJapan
       ? results
-      : [...results.slice(0, 10), null, null, null, null];
+      : [...results.slice(0, 9), null, null, null];
 
     const deltas = monthly?.kpis || {};
 
@@ -2264,12 +1915,19 @@ async function loadDashboard() {
     renderGscCharts(gsc);
     renderGscQueriesTable(gsc);
 
+    const [usersHistory, appDownloadsHistory] = await Promise.all([
+      fetchJSONSafe(`/api/users/history?company=${state.company}`, { history: [] }),
+      fetchJSONSafe(`/api/app-downloads/history?company=${state.company}`, { history: [] }),
+    ]);
+    renderConsiderationAudienceCharts(usersHistory, appDownloadsHistory, deltas, monthly);
+    renderConsiderationInsights(journeys.consideration);
+
     if (isWorkJapan) {
-      const [usersHistory, appDownloadsHistory, platformRegHistory] = await Promise.all([
-        fetchJSON(`/api/users/history?company=${state.company}`),
-        fetchJSON(`/api/app-downloads/history?company=${state.company}`),
-        fetchJSON(`/api/platform-stats/history?company=${state.company}`),
+      const [platformRegHistory, applicantHistory] = await Promise.all([
+        fetchJSONSafe(`/api/platform-stats/history?company=${state.company}`, { history: [] }),
+        fetchJSONSafe(`/api/applicant-stats/history?company=${state.company}`, { history: [] }),
       ]);
+      renderFunnelPipeline(journeys, platform, applicants, social, users, deltas);
       const regContext = {
         funnelMetrics: {
           impressions: (gsc?.kpis?.impressions || 0) + (socialChannels?.totalViews || 0),
@@ -2277,45 +1935,47 @@ async function loadDashboard() {
           registrations: journeys.consideration?.registrations?.totalRegistrations
             || platform?.kpis?.totalRegistrations
             || 0,
+          applications: applicants?.kpis?.totalApplications
+            || applicants?.latest?.total_applications
+            || 0,
         },
         platformHistory: platformRegHistory,
+        applicantHistory,
         deltas,
         monthly,
       };
-      renderConsiderationAudienceCharts(usersHistory, appDownloadsHistory, deltas, monthly);
-      renderFunnelPipeline(journeys, platform, applicants, social, users, deltas);
-      renderConsiderationInsights(journeys.consideration, regContext);
-      if (typeof renderInternalReporting === 'function') {
-        renderInternalReporting(internalReport);
-      }
+      renderCommitRegistration(regContext, journeys.consideration?.registrations);
       renderCommitBarriers(intelligence);
-      renderEmployerPanel(journeys);
-      renderIntelligencePanel(intelligence);
-      renderChartVisaAbandon(intelligence?.visa?.byType);
-      renderChartNationality(intelligence?.nationality?.top);
       renderTopJobsTable(intelligence?.topJobs);
 
       renderPlatformKpis(platform.kpis, deltas);
-      renderChartRegistrationsByMonth(platform.byMonth, platform.platforms);
-      renderChartActiveByPlatform(platform.byPlatform);
-      renderPlatformTable(platform.rows);
 
-      renderProceedWebFunnel(journeys);
       renderApplicantProceedKpis(applicants.kpis, applicants.latest, deltas);
       renderApplicantResultKpis(applicants.kpis, applicants.latest, deltas);
+      renderChartApplicantOutcomes(applicantHistory?.history);
       renderChartApplicantFunnel(applicants.funnelSteps, applicants.latest?.month_label);
       renderChartApplicantsByMonth(applicants.rows);
-      renderApplicantTable(applicants.rows);
+    } else {
+      const [nyuulyCommitStats, nyuulyCommitHistory, nyuulyProceedStats, nyuulyProceedHistory, nyuulyResultStats, nyuulyResultHistory] = await Promise.all([
+        fetchJSONSafe(`/api/nyuuly-commit-stats?${q}`, { kpis: {} }),
+        fetchJSONSafe(`/api/nyuuly-commit-stats/history?company=${state.company}`, { history: [] }),
+        fetchJSONSafe(`/api/nyuuly-proceed-stats?${q}`, { kpis: {} }),
+        fetchJSONSafe(`/api/nyuuly-proceed-stats/history?company=${state.company}`, { history: [] }),
+        fetchJSONSafe(`/api/nyuuly-result-stats?${q}`, { kpis: {} }),
+        fetchJSONSafe(`/api/nyuuly-result-stats/history?company=${state.company}`, { history: [] }),
+      ]);
+      renderNyuulyCommitSection(nyuulyCommitStats, nyuulyCommitHistory, deltas, monthly);
+      renderNyuulyProceedSection(nyuulyProceedStats, nyuulyProceedHistory, deltas, monthly);
+      renderNyuulyResultSection(nyuulyResultStats, nyuulyResultHistory, deltas, monthly);
+      renderFunnelPipeline(
+        journeys, null, null, social, users, deltas,
+        nyuulyCommitStats?.kpis,
+        nyuulyProceedStats?.kpis,
+        nyuulyResultStats?.kpis,
+      );
     }
 
-    journeyData = journeys;
-    if (!journeys.journeys?.some((j) => j.id === state.activeJourney)) {
-      state.activeJourney = journeys.journeys?.[0]?.id || 'awareness';
-    }
     renderDataStatus(journeys.dataCompleteness);
-    renderJourneyTabs(journeys.journeys || []);
-    renderJourneyPanel(journeys);
-    renderLandingTable(journeys.landingPages);
 
     renderSocialSectionContribution(journeys, deltas);
     renderSocialKpis(socialChannels, social, deltas);
@@ -2323,21 +1983,13 @@ async function loadDashboard() {
     renderChartSocialPlatformsByMonth(socialChannelHistory?.history || []);
     renderTopContentTable(social.topPosts || []);
 
-    funnelRows = funnel.rows || [];
-    renderChartFunnel(funnelRows);
-    renderChartFunnelDevice(funnel.step1Devices || []);
-    renderFunnelTable();
-
     renderUsersKpis(users.kpis, deltas);
     renderChartUsersDonut(users.rows || []);
-    renderChartUsersBar(users.rows || []);
     renderChartUsersEngagement(users.rows || []);
     renderUsersTable(users.rows || []);
 
     pagesData = pages.rows || [];
     pagesPage = 1;
-    renderChartPagesBar(pagesData);
-    renderChartPagesScatter(pagesData);
     renderPagesTable();
   } catch (err) {
     console.error('Dashboard load error:', err);
@@ -2353,7 +2005,7 @@ function initControls() {
     document.querySelectorAll('#companyTabs .tab-btn').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     state.company = btn.dataset.company;
-    state.activeJourney = 'awareness';
+    sessionStorage.setItem('analyticsCompany', state.company);
     await loadAvailableMonths();
     loadDashboard();
   });
@@ -2378,6 +2030,12 @@ function initControls() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  const saved = sessionStorage.getItem('analyticsCompany');
+  if (saved === 'nyuuly' || saved === 'workjapan') {
+    document.querySelectorAll('#companyTabs .tab-btn').forEach((b) => {
+      b.classList.toggle('active', b.dataset.company === saved);
+    });
+  }
   syncStateFromUI();
   initControls();
   loadLastUpdated();

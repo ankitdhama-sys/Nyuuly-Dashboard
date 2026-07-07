@@ -24,18 +24,18 @@ const WORKJAPAN_FUNNEL_STAGES = [
     anchor: 'stage-consideration',
     dataSources: ['User Acquisition CSV (GA4)', 'Pages CSV', 'Funnel CSV', 'Search Console zip (GSC)', 'Platform registrations (manual, month-to-date)'],
     journeyIds: ['browse-jobs', 'job-detail'],
-    sectionIds: ['section-internal-reporting', 'section-users', 'section-pages', 'consideration-dropoffs'],
+    sectionIds: ['section-users', 'section-pages', 'consideration-dropoffs'],
   },
   {
     id: 'commit',
     number: 3,
     label: 'Commit (CV / Register)',
     question: 'Who registers — and who abandons at CV because of barriers like the Japanese phone number?',
-    summary: 'Registration funnel, session quality, platform sign-ups, and conversion barriers (in-Japan vs abroad, visa type).',
+    summary: 'Registration funnel, platform sign-ups, and conversion barriers (in-Japan vs abroad, visa type).',
     anchor: 'stage-commit',
     dataSources: ['Funnel CSV', 'Platform stats (manual)', 'Customer intelligence (manual)'],
     journeyIds: ['register-apply'],
-    sectionIds: ['section-funnel', 'section-platform', 'commit-barriers'],
+    sectionIds: ['commit-registration', 'section-platform', 'commit-barriers'],
   },
   {
     id: 'proceed',
@@ -61,41 +61,73 @@ const WORKJAPAN_FUNNEL_STAGES = [
   },
 ];
 
-const WORKJAPAN_PILLARS = [
+const WORKJAPAN_PILLARS = [];
+
+const NYUULY_FUNNEL_STAGES = [
   {
-    id: 'employer',
-    label: 'Employer Intelligence',
-    question: 'How are employers engaging? (Separate from job seekers)',
-    summary: 'Employers follow a different journey — hire pages, job posting dashboard, billing. This is not part of the job seeker funnel above.',
-    anchor: 'pillar-employer',
-    journeyIds: ['employer'],
-    note: 'Employer conversion and drop-off tracking is limited to web analytics today. Backend employer metrics can be added via manual entry later.',
+    id: 'awareness',
+    number: 1,
+    label: 'Awareness',
+    question: 'How do users discover Nyuuly?',
+    summary: 'Social content performance plus organic search impressions and manual social channel views.',
+    anchor: 'stage-awareness',
+    dataSources: ['Social CSV', 'Search Console zip (GSC Performance)', 'Social channel views (manual)'],
+    journeyIds: ['awareness'],
+    sectionIds: ['section-social', 'section-gsc-awareness'],
   },
   {
-    id: 'intelligence',
-    label: 'Customer Intelligence',
-    question: 'Who are our users and what trends matter right now?',
-    summary: 'Nationality, visa type, in-Japan vs abroad, and month-over-month vs 6-month average — a snapshot of what is happening in Japan.',
-    anchor: 'pillar-intelligence',
-    dataSources: ['Customer intelligence (manual monthly entry)'],
+    id: 'consideration',
+    number: 2,
+    label: 'Consideration',
+    question: 'Where do users come from and what pages do they view?',
+    summary: 'Total website users (User Acquisition CSV), app downloads, and page navigation from GA4 exports.',
+    anchor: 'stage-consideration',
+    dataSources: ['User Acquisition CSV (GA4)', 'Pages CSV', 'Search Console zip (GSC)', 'App store downloads (manual)'],
+    journeyIds: ['browse-jobs', 'job-detail', 'explore-no-action'],
+    sectionIds: ['consideration-audience', 'consideration-insights', 'section-users', 'section-pages'],
+  },
+  {
+    id: 'commit',
+    number: 3,
+    label: 'Commit',
+    question: 'How many users subscribe and start Compass?',
+    summary: 'Monthly Nyuuly Subscribe and Compass started counts from manual entry.',
+    anchor: 'stage-commit',
+    dataSources: ['Nyuuly Commit stats (manual monthly)'],
+    journeyIds: ['explore-convert', 'nyuuly-application'],
+    sectionIds: ['section-nyuuly-commit'],
+  },
+  {
+    id: 'proceed',
+    number: 4,
+    label: 'Proceed (Uses)',
+    question: 'How many users add to cart, start the welcome package, and complete Compass?',
+    summary: 'Monthly Add to cart, Welcome package process started, and Compass filled from manual entry.',
+    anchor: 'stage-proceed-nyuuly',
+    dataSources: ['Nyuuly Proceed stats (manual monthly)'],
+    journeyIds: ['welcome-package', 'nyuuly-application'],
+    sectionIds: ['section-nyuuly-proceed'],
+  },
+  {
+    id: 'result',
+    number: 5,
+    label: 'Result',
+    question: 'How many users purchase Mobile Sim and Welcome package, fill forms, and submit Ask me requests?',
+    summary: 'Monthly Mobile Sim purchased, Welcome package purchased, Form filled, and Ask me request from manual entry.',
+    anchor: 'stage-result-nyuuly',
+    dataSources: ['Nyuuly Result stats (manual monthly)'],
+    journeyIds: ['welcome-package', 'nyuuly-application'],
+    sectionIds: ['section-nyuuly-result'],
   },
 ];
 
 const WORKJAPAN_GUIDE = {
   title: 'How to read this dashboard',
-  intro: 'This dashboard is organized around the **job seeker funnel** (5 stages) plus two separate areas: **Employer Intelligence** and **Customer Intelligence**. You do not need to click through every tab — use the stage navigator below to jump directly to the question you care about.',
+  intro: 'This dashboard is organized around the **job seeker funnel** (5 stages). Use the stage navigator below to jump directly to the question you care about.',
   pillars: [
     {
       title: 'Job seeker funnel (5 stages)',
       body: 'Awareness → Consideration → Commit (CV) → Proceed (Apply) → Result. Each stage groups the metrics that answer one business question.',
-    },
-    {
-      title: 'Employer intelligence (separate)',
-      body: 'Employers are a different customer. Their journey (hire pages, job dashboard) is tracked separately and is not mixed into the job seeker funnel.',
-    },
-    {
-      title: 'Customer intelligence',
-      body: 'Metadata trends — nationality, visa type, geography, conversion barriers — compared to the last 6-month average. Entered monthly on the upload page.',
     },
     {
       title: 'Weekly CSV data',
@@ -111,13 +143,20 @@ const WORKJAPAN_GUIDE = {
 
 const NYUULY_GUIDE = {
   title: 'How to read this dashboard',
-  intro: 'NyuuLy analytics are organized by **customer journey tabs** and four weekly CSV sections. Use the journey tabs to explore awareness, browsing, and conversion paths.',
+  intro: 'Nyuuly analytics follow the **Awareness → Consideration → Commit → Proceed (Uses) → Result** funnel. Upload Nyuuly-specific CSVs and manual entries on the upload page — data is kept separate from WORK JAPAN.',
   pillars: [
-    { title: 'Customer journeys', body: 'Tab-based deep dives built from your 4 weekly CSV exports.' },
-    { title: 'Weekly CSV sections', body: 'Social, User Acquisition, Pages, and Funnel — raw data behind the journeys.' },
+    {
+      title: 'Awareness → Result',
+      body: 'Awareness and Consideration use GA4 CSVs. Commit covers Subscribe and Compass started. Proceed (Uses) covers Add to cart, Welcome package process started, and Compass filled. Result covers Mobile Sim purchased, Welcome package purchased, Form filled, and Ask me request.',
+    },
+    {
+      title: 'Weekly CSV data',
+      body: 'Four weekly exports power web analytics: Social, User Acquisition, Pages, and Funnel. Manual monthly entry covers social channel views, app downloads, and Commit/Proceed/Result metrics.',
+    },
   ],
   dataLegend: [
-    { label: 'Weekly CSV', desc: 'Social, user acquisition, pages, funnel exports' },
+    { label: 'Weekly CSV', desc: 'Social, user acquisition, pages, funnel exports (Nyuuly company)' },
+    { label: 'Manual monthly', desc: 'Social channel views, app downloads, Commit, Proceed (Uses), and Result metrics' },
   ],
 };
 
@@ -131,20 +170,21 @@ function getDashboardGuide(company) {
   }
   return {
     ...NYUULY_GUIDE,
-    funnelStages: [],
+    funnelStages: NYUULY_FUNNEL_STAGES,
     pillars_extra: [],
   };
 }
 
 function getFunnelStageForJourney(journeyId, company = 'workjapan') {
-  if (company !== 'workjapan') return null;
-  return WORKJAPAN_FUNNEL_STAGES.find((s) => s.journeyIds.includes(journeyId)) || null;
+  const stages = company === 'workjapan' ? WORKJAPAN_FUNNEL_STAGES : NYUULY_FUNNEL_STAGES;
+  return stages.find((s) => s.journeyIds.includes(journeyId)) || null;
 }
 
 module.exports = {
   VISA_TYPES,
   BARRIER_TYPES,
   WORKJAPAN_FUNNEL_STAGES,
+  NYUULY_FUNNEL_STAGES,
   WORKJAPAN_PILLARS,
   WORKJAPAN_GUIDE,
   NYUULY_GUIDE,

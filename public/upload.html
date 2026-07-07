@@ -103,6 +103,95 @@
       </form>
     </div>
 
+    <div class="manual-upload-section nyuuly-only" id="nyuulyManualSection">
+      <h2>Manual Data Entry — Nyuuly Commit</h2>
+      <p>Enter monthly <strong>Nyuuly Subscribe</strong>, <strong>Compass started</strong>, <strong>Proceed (Uses)</strong>, and <strong>Result</strong> counts. Shown in the <strong>Commit</strong>, <strong>Proceed</strong>, and <strong>Result</strong> stages on the Nyuuly dashboard.</p>
+
+      <div class="upload-slot entry-slot" id="manualNyuulyCommitSlot">
+        <div class="upload-slot-header">
+          <h3>Nyuuly Subscribe &amp; Compass Started</h3>
+          <span class="slot-badge slot-badge-pending" id="nyuulyCommitBadge">No data</span>
+        </div>
+        <form class="entry-form" id="nyuulyCommitEntryForm">
+          <div class="entry-form-row">
+            <label for="nyuulyCommitMonth">Month</label>
+            <input type="month" id="nyuulyCommitMonth" name="month" required>
+          </div>
+          <div class="entry-grid">
+            <div class="entry-field">
+              <label for="nyuulySubscribe">Nyuuly Subscribe</label>
+              <input type="number" id="nyuulySubscribe" min="0" placeholder="0">
+            </div>
+            <div class="entry-field">
+              <label for="compassStarted">Compass Started</label>
+              <input type="number" id="compassStarted" min="0" placeholder="0">
+            </div>
+          </div>
+          <button type="submit" class="btn-primary btn-slot" id="nyuulyCommitSaveBtn">Save Commit Metrics</button>
+        </form>
+      </div>
+
+      <div class="upload-slot entry-slot" id="manualNyuulyProceedSlot">
+        <div class="upload-slot-header">
+          <h3>Proceed (Uses) — Add to Cart &amp; Welcome Package</h3>
+          <span class="slot-badge slot-badge-pending" id="nyuulyProceedBadge">No data</span>
+        </div>
+        <form class="entry-form" id="nyuulyProceedEntryForm">
+          <div class="entry-form-row">
+            <label for="nyuulyProceedMonth">Month</label>
+            <input type="month" id="nyuulyProceedMonth" name="month" required>
+          </div>
+          <div class="entry-grid">
+            <div class="entry-field">
+              <label for="addToCart">Add to cart</label>
+              <input type="number" id="addToCart" min="0" placeholder="0">
+            </div>
+            <div class="entry-field">
+              <label for="welcomePackageStarted">Welcome package process started</label>
+              <input type="number" id="welcomePackageStarted" min="0" placeholder="0">
+            </div>
+            <div class="entry-field">
+              <label for="compassFilled">Compass filled</label>
+              <input type="number" id="compassFilled" min="0" placeholder="0">
+            </div>
+          </div>
+          <button type="submit" class="btn-primary btn-slot" id="nyuulyProceedSaveBtn">Save Proceed Metrics</button>
+        </form>
+      </div>
+
+      <div class="upload-slot entry-slot" id="manualNyuulyResultSlot">
+        <div class="upload-slot-header">
+          <h3>Result — Mobile Sim, Welcome Package &amp; Forms</h3>
+          <span class="slot-badge slot-badge-pending" id="nyuulyResultBadge">No data</span>
+        </div>
+        <form class="entry-form" id="nyuulyResultEntryForm">
+          <div class="entry-form-row">
+            <label for="nyuulyResultMonth">Month</label>
+            <input type="month" id="nyuulyResultMonth" name="month" required>
+          </div>
+          <div class="entry-grid">
+            <div class="entry-field">
+              <label for="mobileSimPurchased">Mobile Sim purchased</label>
+              <input type="number" id="mobileSimPurchased" min="0" placeholder="0">
+            </div>
+            <div class="entry-field">
+              <label for="welcomePackagePurchased">Welcome package purchased</label>
+              <input type="number" id="welcomePackagePurchased" min="0" placeholder="0">
+            </div>
+            <div class="entry-field">
+              <label for="formFilled">Form filled</label>
+              <input type="number" id="formFilled" min="0" placeholder="0">
+            </div>
+            <div class="entry-field">
+              <label for="askMeRequest">Ask me request</label>
+              <input type="number" id="askMeRequest" min="0" placeholder="0">
+            </div>
+          </div>
+          <button type="submit" class="btn-primary btn-slot" id="nyuulyResultSaveBtn">Save Result Metrics</button>
+        </form>
+      </div>
+    </div>
+
     <div class="manual-upload-section" id="manualUploadSection">
       <h2>Manual Data Entry — WORK JAPAN</h2>
       <p>Enter monthly WORK JAPAN metrics below (separate from the 4 weekly GA4 / social CSV exports). Select a month, fill in the values, and save.</p>
@@ -505,15 +594,62 @@
 
     function initMonthInputs() {
       const val = defaultMonthValue();
-      ['platformMonth', 'applicantMonth', 'geoMonth', 'visaMonth', 'nationalityMonth', 'barriersMonth', 'socialChannelsMonth', 'appDownloadsMonth'].forEach((id) => {
+      ['platformMonth', 'applicantMonth', 'geoMonth', 'visaMonth', 'nationalityMonth', 'barriersMonth', 'socialChannelsMonth', 'appDownloadsMonth', 'nyuulyCommitMonth', 'nyuulyProceedMonth', 'nyuulyResultMonth'].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.value = val;
       });
     }
 
+    function initCompanySelection() {
+      const params = new URLSearchParams(window.location.search);
+      const fromUrl = params.get('company');
+      if (fromUrl === 'nyuuly' || fromUrl === 'workjapan') {
+        companySelect.value = fromUrl;
+        return;
+      }
+      const saved = sessionStorage.getItem('analyticsCompany');
+      if (saved === 'nyuuly' || saved === 'workjapan') {
+        companySelect.value = saved;
+      }
+    }
+
     function updateManualSectionVisibility() {
       const isWorkJapan = companySelect.value === 'workjapan';
+      document.body.classList.toggle('company-workjapan', isWorkJapan);
+      document.body.classList.toggle('company-nyuuly', !isWorkJapan);
       document.getElementById('manualUploadSection').style.display = isWorkJapan ? '' : 'none';
+      const nyuulySection = document.getElementById('nyuulyManualSection');
+      if (nyuulySection) nyuulySection.style.removeProperty('display');
+    }
+
+    function updateNyuulyCommitStatus(status) {
+      const info = status?.manualFiles?.['nyuuly-commit'] || { uploaded: false };
+      const badge = document.getElementById('nyuulyCommitBadge');
+      const slot = document.getElementById('manualNyuulyCommitSlot');
+      if (!badge) return;
+      badge.className = `slot-badge ${info.uploaded ? 'slot-badge-done' : 'slot-badge-pending'}`;
+      badge.textContent = info.uploaded ? 'Saved' : 'No data';
+      slot?.classList.toggle('upload-slot-done', info.uploaded);
+    }
+
+    function updateNyuulyProceedStatus(status) {
+      const info = status?.manualFiles?.['nyuuly-proceed'] || { uploaded: false };
+      const badge = document.getElementById('nyuulyProceedBadge');
+      const slot = document.getElementById('manualNyuulyProceedSlot');
+      if (!badge) return;
+      badge.className = `slot-badge ${info.uploaded ? 'slot-badge-done' : 'slot-badge-pending'}`;
+      badge.textContent = info.uploaded ? 'Saved' : 'No data';
+      slot?.classList.toggle('upload-slot-done', info.uploaded);
+    }
+
+    function updateNyuulyResultStatus(status) {
+      const info = status?.manualFiles?.['nyuuly-result'] || { uploaded: false };
+      const badge = document.getElementById('nyuulyResultBadge');
+      const slot = document.getElementById('manualNyuulyResultSlot');
+      if (!badge) return;
+      badge.className = `slot-badge ${info.uploaded ? 'slot-badge-done' : 'slot-badge-pending'}`;
+      badge.textContent = info.uploaded ? 'Saved' : 'No data';
+      slot?.classList.toggle('upload-slot-done', info.uploaded);
     }
 
     function updateSocialChannelsStatus(status) {
@@ -539,6 +675,9 @@
     function updateManualStatus(status) {
       updateSocialChannelsStatus(status);
       updateAppDownloadsStatus(status);
+      updateNyuulyCommitStatus(status);
+      updateNyuulyProceedStatus(status);
+      updateNyuulyResultStatus(status);
       if (companySelect.value !== 'workjapan') return;
       const configs = [
         { type: 'platform', badgeId: 'platformBadge', metaId: 'platformMeta', slotId: 'manualPlatformSlot', label: 'platform rows' },
@@ -563,6 +702,159 @@
         if (meta && info.uploaded) {
           meta.textContent = `${info.rowsAdded} ${cfg.label} saved${info.latestMonth ? ` · latest: ${info.latestMonth}` : ''}${info.uploadedAt ? ` · updated ${info.uploadedAt}` : ''}`;
         }
+      }
+    }
+
+    async function loadNyuulyCommitFormData() {
+      const month = document.getElementById('nyuulyCommitMonth')?.value;
+      if (!month || companySelect.value !== 'nyuuly') return;
+      const { start, end } = monthToRange(month);
+      document.getElementById('nyuulySubscribe').value = '';
+      document.getElementById('compassStarted').value = '';
+      try {
+        const res = await fetch(`/api/nyuuly-commit-stats?company=nyuuly&start=${start}&end=${end}`);
+        const data = await res.json();
+        const latest = data.latest || data.kpis;
+        if (latest) {
+          document.getElementById('nyuulySubscribe').value = latest.nyuuly_subscribe ?? latest.nyuulySubscribe ?? '';
+          document.getElementById('compassStarted').value = latest.compass_started ?? latest.compassStarted ?? '';
+        }
+      } catch (err) {
+        console.error('Failed to load Nyuuly commit form data:', err);
+      }
+    }
+
+    async function handleNyuulyCommitEntry(e) {
+      e.preventDefault();
+      const btn = document.getElementById('nyuulyCommitSaveBtn');
+      const month = document.getElementById('nyuulyCommitMonth').value;
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+      try {
+        const res = await fetch('/api/manual/nyuuly-commit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            company: 'nyuuly',
+            month,
+            nyuuly_subscribe: document.getElementById('nyuulySubscribe').value,
+            compass_started: document.getElementById('compassStarted').value,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Save failed');
+        showToast(`Saved commit metrics for ${data.month}`, 'success');
+        loadStatus();
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save Commit Metrics';
+      }
+    }
+
+    async function loadNyuulyProceedFormData() {
+      const month = document.getElementById('nyuulyProceedMonth')?.value;
+      if (!month || companySelect.value !== 'nyuuly') return;
+      const { start, end } = monthToRange(month);
+      document.getElementById('addToCart').value = '';
+      document.getElementById('welcomePackageStarted').value = '';
+      document.getElementById('compassFilled').value = '';
+      try {
+        const res = await fetch(`/api/nyuuly-proceed-stats?company=nyuuly&start=${start}&end=${end}`);
+        const data = await res.json();
+        const latest = data.latest || data.kpis;
+        if (latest) {
+          document.getElementById('addToCart').value = latest.add_to_cart ?? latest.addToCart ?? '';
+          document.getElementById('welcomePackageStarted').value = latest.welcome_package_started ?? latest.welcomePackageStarted ?? '';
+          document.getElementById('compassFilled').value = latest.compass_filled ?? latest.compassFilled ?? '';
+        }
+      } catch (err) {
+        console.error('Failed to load Nyuuly proceed form data:', err);
+      }
+    }
+
+    async function handleNyuulyProceedEntry(e) {
+      e.preventDefault();
+      const btn = document.getElementById('nyuulyProceedSaveBtn');
+      const month = document.getElementById('nyuulyProceedMonth').value;
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+      try {
+        const res = await fetch('/api/manual/nyuuly-proceed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            company: 'nyuuly',
+            month,
+            add_to_cart: document.getElementById('addToCart').value,
+            welcome_package_started: document.getElementById('welcomePackageStarted').value,
+            compass_filled: document.getElementById('compassFilled').value,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Save failed');
+        showToast(`Saved proceed metrics for ${data.month}`, 'success');
+        loadStatus();
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save Proceed Metrics';
+      }
+    }
+
+    async function loadNyuulyResultFormData() {
+      const month = document.getElementById('nyuulyResultMonth')?.value;
+      if (!month || companySelect.value !== 'nyuuly') return;
+      const { start, end } = monthToRange(month);
+      document.getElementById('mobileSimPurchased').value = '';
+      document.getElementById('welcomePackagePurchased').value = '';
+      document.getElementById('formFilled').value = '';
+      document.getElementById('askMeRequest').value = '';
+      try {
+        const res = await fetch(`/api/nyuuly-result-stats?company=nyuuly&start=${start}&end=${end}`);
+        const data = await res.json();
+        const latest = data.latest || data.kpis;
+        if (latest) {
+          document.getElementById('mobileSimPurchased').value = latest.mobile_sim_purchased ?? latest.mobileSimPurchased ?? '';
+          document.getElementById('welcomePackagePurchased').value = latest.welcome_package_purchased ?? latest.welcomePackagePurchased ?? '';
+          document.getElementById('formFilled').value = latest.form_filled ?? latest.formFilled ?? '';
+          document.getElementById('askMeRequest').value = latest.ask_me_request ?? latest.askMeRequest ?? '';
+        }
+      } catch (err) {
+        console.error('Failed to load Nyuuly result form data:', err);
+      }
+    }
+
+    async function handleNyuulyResultEntry(e) {
+      e.preventDefault();
+      const btn = document.getElementById('nyuulyResultSaveBtn');
+      const month = document.getElementById('nyuulyResultMonth').value;
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+      try {
+        const res = await fetch('/api/manual/nyuuly-result', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            company: 'nyuuly',
+            month,
+            mobile_sim_purchased: document.getElementById('mobileSimPurchased').value,
+            welcome_package_purchased: document.getElementById('welcomePackagePurchased').value,
+            form_filled: document.getElementById('formFilled').value,
+            ask_me_request: document.getElementById('askMeRequest').value,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Save failed');
+        showToast(`Saved result metrics for ${data.month}`, 'success');
+        loadStatus();
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save Result Metrics';
       }
     }
 
@@ -990,6 +1282,7 @@
     });
 
     companySelect.addEventListener('change', () => {
+      sessionStorage.setItem('analyticsCompany', companySelect.value);
       updateManualSectionVisibility();
       loadStatus();
       loadSocialChannelsFormData();
@@ -997,6 +1290,10 @@
       if (companySelect.value === 'workjapan') {
         loadPlatformFormData();
         loadApplicantFormData();
+      } else {
+        loadNyuulyCommitFormData();
+        loadNyuulyProceedFormData();
+        loadNyuulyResultFormData();
       }
     });
 
@@ -1004,6 +1301,12 @@
     document.getElementById('socialChannelsEntryForm').addEventListener('submit', handleSocialChannelsEntry);
     document.getElementById('appDownloadsMonth').addEventListener('change', loadAppDownloadsFormData);
     document.getElementById('appDownloadsEntryForm').addEventListener('submit', handleAppDownloadsEntry);
+    document.getElementById('nyuulyCommitMonth')?.addEventListener('change', loadNyuulyCommitFormData);
+    document.getElementById('nyuulyCommitEntryForm')?.addEventListener('submit', handleNyuulyCommitEntry);
+    document.getElementById('nyuulyProceedMonth')?.addEventListener('change', loadNyuulyProceedFormData);
+    document.getElementById('nyuulyProceedEntryForm')?.addEventListener('submit', handleNyuulyProceedEntry);
+    document.getElementById('nyuulyResultMonth')?.addEventListener('change', loadNyuulyResultFormData);
+    document.getElementById('nyuulyResultEntryForm')?.addEventListener('submit', handleNyuulyResultEntry);
     document.getElementById('platformMonth').addEventListener('change', loadPlatformFormData);
     document.getElementById('applicantMonth').addEventListener('change', loadApplicantFormData);
     document.getElementById('platformEntryForm').addEventListener('submit', handlePlatformEntry);
@@ -1013,6 +1316,7 @@
     document.getElementById('nationalityEntryForm')?.addEventListener('submit', handleNationalityEntry);
     document.getElementById('barriersEntryForm')?.addEventListener('submit', handleBarriersEntry);
 
+    initCompanySelection();
     initMonthInputs();
     updateManualSectionVisibility();
     renderSlots();
@@ -1022,6 +1326,9 @@
     loadAppDownloadsFormData();
     loadPlatformFormData();
     loadApplicantFormData();
+    loadNyuulyCommitFormData();
+    loadNyuulyProceedFormData();
+    loadNyuulyResultFormData();
   </script>
 </body>
 </html>

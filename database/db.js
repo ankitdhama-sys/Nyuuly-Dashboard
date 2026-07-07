@@ -245,6 +245,45 @@ function initDb() {
       upload_date TEXT DEFAULT (date('now')),
       UNIQUE(company, month_label, platform)
     );
+
+    CREATE TABLE IF NOT EXISTS nyuuly_commit_stats (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      company TEXT NOT NULL DEFAULT 'nyuuly',
+      month_label TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      month INTEGER NOT NULL,
+      nyuuly_subscribe INTEGER DEFAULT 0,
+      compass_started INTEGER DEFAULT 0,
+      upload_date TEXT DEFAULT (date('now')),
+      UNIQUE(company, month_label)
+    );
+
+    CREATE TABLE IF NOT EXISTS nyuuly_proceed_stats (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      company TEXT NOT NULL DEFAULT 'nyuuly',
+      month_label TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      month INTEGER NOT NULL,
+      add_to_cart INTEGER DEFAULT 0,
+      welcome_package_started INTEGER DEFAULT 0,
+      compass_filled INTEGER DEFAULT 0,
+      upload_date TEXT DEFAULT (date('now')),
+      UNIQUE(company, month_label)
+    );
+
+    CREATE TABLE IF NOT EXISTS nyuuly_result_stats (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      company TEXT NOT NULL DEFAULT 'nyuuly',
+      month_label TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      month INTEGER NOT NULL,
+      mobile_sim_purchased INTEGER DEFAULT 0,
+      welcome_package_purchased INTEGER DEFAULT 0,
+      form_filled INTEGER DEFAULT 0,
+      ask_me_request INTEGER DEFAULT 0,
+      upload_date TEXT DEFAULT (date('now')),
+      UNIQUE(company, month_label)
+    );
   `);
 }
 
