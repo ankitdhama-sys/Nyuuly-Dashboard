@@ -78,12 +78,13 @@ function monthLabel(key) {
   return `${names[m - 1] || m} ${y}`;
 }
 
-async function loadAvailableMonths() {
+async function loadAvailableMonths(forceDefault = false) {
   try {
     const data = await fetchJSON(`/api/available-months?company=${state.company}`);
     state.availableMonths = data.months || [];
-    if (!state.month || !state.availableMonths.some((m) => m.key === state.month)) {
-      state.month = data.latest || null;
+    const defaultMonth = data.defaultMonth || data.latest || null;
+    if (forceDefault || !state.month || !state.availableMonths.some((m) => m.key === state.month)) {
+      state.month = defaultMonth;
     }
     const sel = document.getElementById('monthSelect');
     if (sel) {
@@ -233,7 +234,7 @@ function renderFunnelNav(guide) {
   ].join('');
 }
 
-function renderFunnelPipeline(journeys, platform, applicants, social, users, deltas, nyuulyCommit, nyuulyProceed, nyuulyResult) {
+function renderFunnelPipeline(journeys, platform, applicants, social, users, deltas, nyuulyCommit, nyuulyResult, mobileSimFlow) {
   const el = document.getElementById('funnelPipeline');
   if (!el) return;
 
@@ -311,9 +312,10 @@ function renderFunnelPipeline(journeys, platform, applicants, social, users, del
       anchor: 'stage-proceed-nyuuly',
       num: 4,
       label: 'Proceed (Uses)',
-      value: formatNum(nyuulyProceed?.addToCart),
-      detail: `${formatNum(nyuulyProceed?.compassFilled)} Compass filled`,
-      deltaKey: 'addToCart',
+      value: formatNum(mobileSimFlow?.steps?.find((s) => s.key === 'apply')?.activeUsers),
+      detail: `${formatNum(mobileSimFlow?.steps?.find((s) => s.key === 'confirm')?.activeUsers)} reached Confirm`,
+      deltaKey: 'mobileSimApply',
+      stepDelta: mobileSimFlow?.steps?.find((s) => s.key === 'apply'),
     },
     {
       anchor: 'stage-result-nyuuly',
@@ -330,7 +332,7 @@ function renderFunnelPipeline(journeys, platform, applicants, social, users, del
       <div class="pipeline-num">${s.num}</div>
       <div class="pipeline-label">${s.label}</div>
       <div class="pipeline-value">${s.value}</div>
-      ${deltaBadge(deltas, s.deltaKey)}
+      ${s.stepDelta ? stepMoMBadge(s.stepDelta) : deltaBadge(deltas, s.deltaKey)}
       ${s.detail ? `<div class="pipeline-detail">${s.detail}</div>` : ''}
     </a>
     ${i < stages.length - 1 ? '<div class="pipeline-arrow">→</div>' : ''}
@@ -457,6 +459,410 @@ function renderNyuulyCommitSection(stats, historyData, deltas, monthly) {
   }
 
   renderChartNyuulyCommit(historyData?.history || []);
+}
+
+const MOBILE_SIM_FLOW_STEPS = [
+  { key: 'apply', label: 'Apply', color: '#4F8EF7' },
+  { key: 'verify', label: 'Verify', color: '#6366f1' },
+  { key: 'identity', label: 'Identity', color: '#a78bfa' },
+  { key: 'payment', label: 'Payment', color: '#fbbf24' },
+  { key: 'confirm', label: 'Confirm', color: '#34d399' },
+];
+
+const COMPASS_USES_CATEGORIES = [
+  { key: 'student', label: 'Student', color: '#4F8EF7' },
+  { key: 'self-sponsored', label: 'Self-sponsored', color: '#6366f1' },
+  { key: 'company-sponsored', label: 'Company sponsored', color: '#a78bfa' },
+  { key: 'family', label: 'Family', color: '#fbbf24' },
+  { key: 'askme', label: 'Ask me', color: '#34d399' },
+  { key: 'others', label: 'Others', color: '#f472b6' },
+];
+
+function stepMoMBadge(step) {
+  const d = step?.deltaPct;
+  if (d == null) return '<span class="kpi-delta kpi-delta-flat">— vs last month</span>';
+  if (d > 0) return `<span class="kpi-delta kpi-delta-up">▲ ${Math.abs(d).toFixed(1)}%</span>`;
+  if (d < 0) return `<span class="kpi-delta kpi-delta-down">▼ ${Math.abs(d).toFixed(1)}%</span>`;
+  return '<span class="kpi-delta kpi-delta-flat">0.0%</span>';
+}
+
+function renderMobileSimFlowSection(flowData, historyData, monthly) {
+  const kpiEl = document.getElementById('mobileSimFlowKpis');
+  const funnelEl = document.getElementById('mobileSimFlowFunnel');
+  const tableEl = document.getElementById('mobileSimFlowTable');
+  if (!kpiEl || state.company !== 'nyuuly') return;
+
+  const steps = flowData?.steps || [];
+  const hasData = steps.some((s) => s.activeUsers > 0);
+
+  if (!hasData) {
+    if (funnelEl) funnelEl.innerHTML = '';
+    kpiEl.innerHTML = '<div class="empty-state">No Mobile Sim page data — upload the <strong>Pages CSV</strong> for this month on the <a href="/upload">upload page</a></div>';
+    if (tableEl) tableEl.innerHTML = '';
+    destroyChart('chartMobileSimFlow');
+    destroyChart('chartMobileSimFunnel');
+    return;
+  }
+
+  const period = monthly?.monthLabel
+    ? `<span class="consideration-audience-period">This month: ${monthly.monthLabel}${monthly.prevMonthLabel ? ` · compared to ${monthly.prevMonthLabel}` : ''}</span>`
+    : '';
+
+  if (funnelEl) {
+    funnelEl.innerHTML = steps.map((step, i) => `
+      <div class="mobile-sim-step">
+        <div class="mobile-sim-step-label">${step.label}</div>
+        <div class="mobile-sim-step-value">${formatNum(step.activeUsers)}</div>
+        ${step.fromPrevStepPct != null ? `<div class="mobile-sim-step-rate">${formatPct(step.fromPrevStepPct)} from prev</div>` : ''}
+      </div>
+      ${i < steps.length - 1 ? '<div class="mobile-sim-arrow">→</div>' : ''}
+    `).join('');
+  }
+
+  kpiEl.innerHTML = `
+    ${period}
+    ${steps.map((step) => `
+      <div class="kpi-card">
+        <div class="label">${step.label}</div>
+        <div class="value">${formatNum(step.activeUsers)}</div>
+        ${stepMoMBadge(step)}
+        <div class="kpi-sub">${step.path}</div>
+      </div>
+    `).join('')}
+  `;
+
+  if (tableEl) {
+    tableEl.innerHTML = `
+      <div class="table-wrap">
+        <table class="data-table mobile-sim-flow-table">
+          <thead>
+            <tr>
+              <th>Step</th>
+              <th>Page path</th>
+              <th>Active users</th>
+              <th>MoM</th>
+              <th>From previous step</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${steps.map((step, i) => `
+              <tr>
+                <td><strong>${i + 1}. ${step.label}</strong></td>
+                <td><code>${step.path}</code></td>
+                <td>${formatNum(step.activeUsers)}</td>
+                <td>${stepMoMBadge(step)}</td>
+                <td>${step.fromPrevStepPct != null ? formatPct(step.fromPrevStepPct) : '—'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  renderChartMobileSimFunnel(steps);
+  renderChartMobileSimFlow(historyData?.history || []);
+}
+
+function renderChartMobileSimFunnel(steps) {
+  destroyChart('chartMobileSimFunnel');
+  const ctx = document.getElementById('chartMobileSimFunnel');
+  if (!ctx || !steps?.length) return;
+
+  const hasData = steps.some((s) => s.activeUsers > 0);
+  if (!hasData) return;
+
+  charts.chartMobileSimFunnel = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: steps.map((s) => s.label),
+      datasets: [{
+        label: 'Active users',
+        data: steps.map((s) => s.activeUsers),
+        backgroundColor: MOBILE_SIM_FLOW_STEPS.map((s) => s.color),
+      }],
+    },
+    options: {
+      ...chartDefaults(),
+      indexAxis: 'y',
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid }, beginAtZero: true },
+        y: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
+      },
+    },
+  });
+}
+
+function renderChartMobileSimFlow(history) {
+  destroyChart('chartMobileSimFlow');
+  const ctx = document.getElementById('chartMobileSimFlow');
+  if (!ctx || !history?.length) return;
+
+  const hasData = history.some((h) => MOBILE_SIM_FLOW_STEPS.some((s) => (h[s.key] || 0) > 0));
+  if (!hasData) return;
+
+  const labels = history.map((h) => h.label.replace(/^\d{4}\s/, ''));
+  charts.chartMobileSimFlow = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: MOBILE_SIM_FLOW_STEPS.map((step) => ({
+        label: step.label,
+        data: history.map((h) => h[step.key] || 0),
+        borderColor: step.color,
+        backgroundColor: step.color,
+        tension: 0.3,
+        pointRadius: 4,
+      })),
+    },
+    options: {
+      ...chartDefaults(),
+      scales: {
+        x: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
+        y: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid }, beginAtZero: true },
+      },
+    },
+  });
+}
+
+function renderCompassUsesFlowSection(flowData, historyData, monthly) {
+  const pathEl = document.getElementById('compassUsesPathExploration');
+  const kpiEl = document.getElementById('compassUsesKpis');
+  const tableEl = document.getElementById('compassUsesTable');
+  if (!pathEl || state.company !== 'nyuuly') return;
+
+  const root = flowData?.root || {};
+  const categories = flowData?.categories || [];
+  const hasData = (root.activeUsers || 0) > 0 || categories.some((c) => c.activeUsers > 0 || (c.children || []).length > 0);
+
+  if (!hasData) {
+    pathEl.innerHTML = '';
+    if (kpiEl) kpiEl.innerHTML = '<div class="empty-state">No Compass page data — upload the <strong>Pages CSV</strong> for this month on the <a href="/upload">upload page</a></div>';
+    if (tableEl) tableEl.innerHTML = '';
+    destroyChart('chartCompassUsesCategories');
+    destroyChart('chartCompassUsesHistory');
+    return;
+  }
+
+  const period = monthly?.monthLabel
+    ? `<span class="consideration-audience-period">This month: ${monthly.monthLabel}${monthly.prevMonthLabel ? ` · compared to ${monthly.prevMonthLabel}` : ''}</span>`
+    : '';
+
+  const maxCatUsers = Math.max(...categories.map((c) => c.activeUsers || 0), 1);
+
+  pathEl.innerHTML = `
+    <div class="path-exploration-grid">
+      <div class="path-exploration-col">
+        <div class="path-exploration-col-head">Starting point</div>
+        <div class="path-node path-node-root">
+          <div class="path-node-label">${root.label || 'Compass'}</div>
+          <div class="path-node-value">${formatNum(root.activeUsers || 0)}</div>
+          <div class="path-node-path"><code>/compass</code></div>
+          ${stepMoMBadge(root)}
+        </div>
+      </div>
+      <div class="path-exploration-connector" aria-hidden="true">→</div>
+      <div class="path-exploration-col">
+        <div class="path-exploration-col-head">Step +1 — Category</div>
+        ${categories.map((cat) => `
+          <div class="path-node path-node-category" style="--flow-width: ${Math.max(8, (cat.activeUsers / maxCatUsers) * 100)}%">
+            <div class="path-node-label">${cat.label}</div>
+            <div class="path-node-value">${formatNum(cat.activeUsers || 0)}</div>
+            <div class="path-node-path"><code>${cat.path.replace('/compass', '') || '/'}</code></div>
+            ${cat.fromCompassPct != null ? `<div class="path-node-rate">${formatPct(cat.fromCompassPct)} of Compass</div>` : ''}
+          </div>
+        `).join('')}
+      </div>
+      <div class="path-exploration-connector" aria-hidden="true">→</div>
+      <div class="path-exploration-col path-exploration-col-wide">
+        <div class="path-exploration-col-head">Step +2 — Sub-pages</div>
+        ${categories.map((cat) => `
+          <div class="path-node-group">
+            <div class="path-node-group-title">${cat.label}</div>
+            ${(cat.children || []).length
+              ? cat.children.map((child) => `
+                <div class="path-node path-node-child">
+                  <div class="path-node-label">${child.segment || child.label}</div>
+                  <div class="path-node-value">${formatNum(child.activeUsers || 0)}</div>
+                  <div class="path-node-path"><code>${child.path.replace('/compass', '')}</code></div>
+                </div>
+              `).join('')
+              : '<div class="path-node path-node-empty">No sub-pages with users</div>'}
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+
+  if (kpiEl) {
+    kpiEl.innerHTML = `
+      ${period}
+      <div class="kpi-card">
+        <div class="label">Compass total</div>
+        <div class="value">${formatNum(root.activeUsers || 0)}</div>
+        ${stepMoMBadge(root)}
+        <div class="kpi-sub">/compass</div>
+      </div>
+      ${categories.map((cat) => `
+        <div class="kpi-card">
+          <div class="label">${cat.label}</div>
+          <div class="value">${formatNum(cat.activeUsers || 0)}</div>
+          ${stepMoMBadge(cat)}
+          <div class="kpi-sub">${cat.path}</div>
+        </div>
+      `).join('')}
+    `;
+  }
+
+  if (tableEl) {
+    const rows = categories.flatMap((cat) => {
+      const baseRow = {
+        step: 'Category',
+        category: cat.label,
+        path: cat.path,
+        users: cat.activeUsers || 0,
+        deltaPct: cat.deltaPct,
+        fromPrev: cat.fromCompassPct,
+      };
+      const childRows = (cat.children || []).map((child) => ({
+        step: 'Sub-page',
+        category: cat.label,
+        path: child.path,
+        users: child.activeUsers || 0,
+        deltaPct: child.prevActiveUsers != null ? deltaPctFromValues(child.activeUsers, child.prevActiveUsers) : null,
+        fromPrev: cat.activeUsers > 0 ? Math.round((child.activeUsers / cat.activeUsers) * 1000) / 10 : null,
+      }));
+      return [baseRow, ...childRows];
+    });
+
+    tableEl.innerHTML = `
+      <div class="table-wrap">
+        <table class="data-table compass-uses-table">
+          <thead>
+            <tr>
+              <th>Step</th>
+              <th>Category</th>
+              <th>Page path</th>
+              <th>Active users</th>
+              <th>MoM</th>
+              <th>From previous step</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="compass-uses-root-row">
+              <td><strong>Start</strong></td>
+              <td>—</td>
+              <td><code>${root.path || '/compass'}</code></td>
+              <td>${formatNum(root.activeUsers || 0)}</td>
+              <td>${stepMoMBadge(root)}</td>
+              <td>—</td>
+            </tr>
+            ${rows.map((row) => `
+              <tr>
+                <td>${row.step}</td>
+                <td>${row.category}</td>
+                <td><code>${row.path}</code></td>
+                <td>${formatNum(row.users)}</td>
+                <td>${row.deltaPct != null ? formatDeltaPct(row.deltaPct) : '<span class="kpi-delta kpi-delta-flat">—</span>'}</td>
+                <td>${row.fromPrev != null ? formatPct(row.fromPrev) : '—'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  renderChartCompassUsesCategories(categories);
+  renderChartCompassUsesHistory(historyData?.history || []);
+}
+
+function deltaPctFromValues(current, previous) {
+  if (previous == null || previous === 0) return current > 0 ? null : 0;
+  return Math.round(((current - previous) / previous) * 1000) / 10;
+}
+
+function formatDeltaPct(d) {
+  if (d == null) return '<span class="kpi-delta kpi-delta-flat">—</span>';
+  if (d > 0) return `<span class="kpi-delta kpi-delta-up">▲ ${Math.abs(d).toFixed(1)}%</span>`;
+  if (d < 0) return `<span class="kpi-delta kpi-delta-down">▼ ${Math.abs(d).toFixed(1)}%</span>`;
+  return '<span class="kpi-delta kpi-delta-flat">0.0%</span>';
+}
+
+function renderChartCompassUsesCategories(categories) {
+  destroyChart('chartCompassUsesCategories');
+  const ctx = document.getElementById('chartCompassUsesCategories');
+  if (!ctx || !categories?.length) return;
+
+  const hasData = categories.some((c) => c.activeUsers > 0);
+  if (!hasData) return;
+
+  const colorMap = Object.fromEntries(COMPASS_USES_CATEGORIES.map((c) => [c.key, c.color]));
+
+  charts.chartCompassUsesCategories = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: categories.map((c) => c.label),
+      datasets: [{
+        label: 'Active users',
+        data: categories.map((c) => c.activeUsers || 0),
+        backgroundColor: categories.map((c) => colorMap[c.key] || '#94a3b8'),
+      }],
+    },
+    options: {
+      ...chartDefaults(),
+      indexAxis: 'y',
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid }, beginAtZero: true },
+        y: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
+      },
+    },
+  });
+}
+
+function renderChartCompassUsesHistory(history) {
+  destroyChart('chartCompassUsesHistory');
+  const ctx = document.getElementById('chartCompassUsesHistory');
+  if (!ctx || !history?.length) return;
+
+  const hasData = history.some((h) => (h.compass || 0) > 0 || COMPASS_USES_CATEGORIES.some((c) => (h[c.key] || 0) > 0));
+  if (!hasData) return;
+
+  const labels = history.map((h) => h.label.replace(/^\d{4}\s/, ''));
+
+  charts.chartCompassUsesHistory = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Compass',
+          data: history.map((h) => h.compass || 0),
+          borderColor: '#0ea5e9',
+          backgroundColor: '#0ea5e9',
+          tension: 0.3,
+          pointRadius: 4,
+        },
+        ...COMPASS_USES_CATEGORIES.map((cat) => ({
+          label: cat.label,
+          data: history.map((h) => h[cat.key] || 0),
+          borderColor: cat.color,
+          backgroundColor: cat.color,
+          tension: 0.3,
+          pointRadius: 3,
+        })),
+      ],
+    },
+    options: {
+      ...chartDefaults(),
+      scales: {
+        x: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
+        y: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid }, beginAtZero: true },
+      },
+    },
+  });
 }
 
 function renderChartNyuulyCommit(history) {
@@ -1984,22 +2390,25 @@ async function loadDashboard() {
       renderChartApplicantFunnel(applicants.funnelSteps, applicants.latest?.month_label);
       renderChartApplicantsByMonth(applicants.rows);
     } else {
-      const [nyuulyCommitStats, nyuulyCommitHistory, nyuulyProceedStats, nyuulyProceedHistory, nyuulyResultStats, nyuulyResultHistory] = await Promise.all([
+      const [nyuulyCommitStats, nyuulyCommitHistory, nyuulyResultStats, nyuulyResultHistory, mobileSimFlow, mobileSimFlowHistory, compassUsesFlow, compassUsesHistory] = await Promise.all([
         fetchJSONSafe(`/api/nyuuly-commit-stats?${q}`, { kpis: {} }),
         fetchJSONSafe(`/api/nyuuly-commit-stats/history?company=${state.company}`, { history: [] }),
-        fetchJSONSafe(`/api/nyuuly-proceed-stats?${q}`, { kpis: {} }),
-        fetchJSONSafe(`/api/nyuuly-proceed-stats/history?company=${state.company}`, { history: [] }),
         fetchJSONSafe(`/api/nyuuly-result-stats?${q}`, { kpis: {} }),
         fetchJSONSafe(`/api/nyuuly-result-stats/history?company=${state.company}`, { history: [] }),
+        fetchJSONSafe(`/api/mobile-sim-flow?${q}`, { steps: [] }),
+        fetchJSONSafe(`/api/mobile-sim-flow/history?company=${state.company}`, { history: [] }),
+        fetchJSONSafe(`/api/compass-uses-flow?${q}`, { categories: [] }),
+        fetchJSONSafe(`/api/compass-uses-flow/history?company=${state.company}`, { history: [] }),
       ]);
       renderNyuulyCommitSection(nyuulyCommitStats, nyuulyCommitHistory, deltas, monthly);
-      renderNyuulyProceedSection(nyuulyProceedStats, nyuulyProceedHistory, deltas, monthly);
+      renderMobileSimFlowSection(mobileSimFlow, mobileSimFlowHistory, monthly);
+      renderCompassUsesFlowSection(compassUsesFlow, compassUsesHistory, monthly);
       renderNyuulyResultSection(nyuulyResultStats, nyuulyResultHistory, deltas, monthly);
       renderFunnelPipeline(
         journeys, null, null, social, users, deltas,
         nyuulyCommitStats?.kpis,
-        nyuulyProceedStats?.kpis,
         nyuulyResultStats?.kpis,
+        mobileSimFlow,
       );
     }
 
@@ -2034,7 +2443,7 @@ function initControls() {
     btn.classList.add('active');
     state.company = btn.dataset.company;
     sessionStorage.setItem('analyticsCompany', state.company);
-    await loadAvailableMonths();
+    await loadAvailableMonths(true);
     loadDashboard();
   });
 
@@ -2067,6 +2476,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   syncStateFromUI();
   initControls();
   loadLastUpdated();
-  await loadAvailableMonths();
+  await loadAvailableMonths(true);
   loadDashboard();
 });

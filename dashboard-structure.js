@@ -101,10 +101,10 @@ const NYUULY_FUNNEL_STAGES = [
     id: 'proceed',
     number: 4,
     label: 'Proceed (Uses)',
-    question: 'How many users add to cart, start the welcome package, and complete Compass?',
-    summary: 'Monthly Add to cart, Welcome package process started, and Compass filled from manual entry.',
+    question: 'How many users move through Mobile Sim apply and Compass page paths?',
+    summary: 'Mobile Sim funnel (Apply → Confirm) and Compass path exploration (/compass → categories → sub-pages) from Pages CSV active users.',
     anchor: 'stage-proceed-nyuuly',
-    dataSources: ['Nyuuly Proceed stats (manual monthly)'],
+    dataSources: ['Pages CSV (GA4)'],
     journeyIds: ['welcome-package', 'nyuuly-application'],
     sectionIds: ['section-nyuuly-proceed'],
   },
@@ -147,16 +147,16 @@ const NYUULY_GUIDE = {
   pillars: [
     {
       title: 'Awareness → Result',
-      body: 'Awareness and Consideration use GA4 CSVs. Commit covers Subscribe and Compass started. Proceed (Uses) covers Add to cart, Welcome package process started, and Compass filled. Result covers Mobile Sim purchased, Welcome package purchased, Form filled, and Ask me request.',
+      body: 'Awareness and Consideration use GA4 CSVs. Commit covers Subscribe and Compass started. Proceed (Uses) covers Mobile Sim page flow and Compass path exploration from Pages CSV. Result covers Mobile Sim purchased, Welcome package purchased, Form filled, and Ask me request.',
     },
     {
       title: 'Weekly CSV data',
-      body: 'Four weekly exports power web analytics: Social, User Acquisition, Pages, and Funnel. Manual monthly entry covers social channel views, app downloads, and Commit/Proceed/Result metrics.',
+      body: 'Four weekly exports power web analytics: Social, User Acquisition, Pages, and Funnel. Manual monthly entry covers social channel views, app downloads, Commit, and Result metrics.',
     },
   ],
   dataLegend: [
     { label: 'Weekly CSV', desc: 'Social, user acquisition, pages, funnel exports (Nyuuly company)' },
-    { label: 'Manual monthly', desc: 'Social channel views, app downloads, Commit, Proceed (Uses), and Result metrics' },
+    { label: 'Manual monthly', desc: 'Social channel views, app downloads, Commit, and Result metrics' },
   ],
 };
 

@@ -804,6 +804,63 @@ function getAvailableMonths(company) {
   return [...set].sort();
 }
 
+function currentCalendarMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function previousCalendarMonthKey(fromKey = currentCalendarMonthKey()) {
+  const [y, m] = fromKey.split('-').map(Number);
+  const d = new Date(y, m - 2, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** True when the month has at least one core weekly CSV source (not manual-only entry). */
+function monthHasWeeklyCsvDataForCompany(company, monthKey) {
+  if (!monthKey || !company) return false;
+  const coAnd = 'company = ? AND ';
+  const params = [company, monthKey];
+
+  const checks = [
+    `SELECT 1 FROM pages_screens WHERE ${coAnd}${MONTH_KEY_SQL.pages_screens} = ? LIMIT 1`,
+    `SELECT 1 FROM user_acquisition WHERE ${coAnd}${MONTH_KEY_SQL.user_acquisition} = ? LIMIT 1`,
+    `SELECT 1 FROM social_posts WHERE ${coAnd}${MONTH_KEY_SQL.social_posts} = ? LIMIT 1`,
+    `SELECT 1 FROM funnel_data WHERE ${coAnd}${MONTH_KEY_SQL.funnel_data} = ? LIMIT 1`,
+    `SELECT 1 FROM search_console_stats WHERE ${coAnd}${MONTH_KEY_SQL.search_console_stats} = ? LIMIT 1`,
+  ];
+
+  return checks.some((sql) => db.prepare(sql).get(...params));
+}
+
+function monthHasWeeklyCsvData(company, monthKey) {
+  if (!monthKey) return false;
+  if (company && company !== 'all') {
+    return monthHasWeeklyCsvDataForCompany(company, monthKey);
+  }
+  return monthHasWeeklyCsvDataForCompany('workjapan', monthKey)
+    || monthHasWeeklyCsvDataForCompany('nyuuly', monthKey);
+}
+
+/**
+ * Default month for the dashboard filter.
+ * Uses the latest month with data, unless that month is the current calendar month
+ * and only manual/partial data exists — then falls back to the previous month.
+ */
+function getDefaultMonthKey(company, months) {
+  if (!months?.length) return null;
+
+  const latest = months[months.length - 1];
+  const current = currentCalendarMonthKey();
+
+  if (latest === current && !monthHasWeeklyCsvData(company, current)) {
+    const prev = previousCalendarMonthKey(current);
+    if (months.includes(prev)) return prev;
+    if (months.length >= 2) return months[months.length - 2];
+  }
+
+  return latest;
+}
+
 function deltaPct(value, prevValue) {
   if (prevValue == null || prevValue === 0) return null;
   return Math.round(((value - prevValue) / prevValue) * 1000) / 10;
@@ -1198,6 +1255,162 @@ function getBrandMessageForMonth(company, monthKey) {
     message: row?.message || '',
     month_label: row?.month_label || null,
   };
+}
+
+const MOBILE_SIM_FLOW_STEPS = [
+  { key: 'apply', label: 'Apply', path: '/mobile/sim/apply' },
+  { key: 'verify', label: 'Verify', path: '/mobile/sim/apply/verify' },
+  { key: 'identity', label: 'Identity', path: '/mobile/sim/apply/identity' },
+  { key: 'payment', label: 'Payment', path: '/mobile/sim/apply/payment' },
+  { key: 'confirm', label: 'Confirm', path: '/mobile/sim/apply/confirm' },
+];
+
+function normalizePagePath(path) {
+  if (!path) return '';
+  let p = String(path).trim();
+  try {
+    if (p.startsWith('http://') || p.startsWith('https://')) {
+      p = new URL(p).pathname;
+    }
+  } catch (_) { /* keep raw path */ }
+  if (!p.startsWith('/')) p = `/${p}`;
+  return p.replace(/\/+$/, '') || '/';
+}
+
+function getPageActiveUsersForPaths(company, monthKey, paths) {
+  const range = monthKeyToDateRange(monthKey);
+  if (!range || !paths?.length) return 0;
+
+  const targets = new Set(paths.map(normalizePagePath));
+  const { clause, params } = buildGa4DateQuery(company, range.start, range.end);
+  const rawRows = db.prepare(`
+    SELECT page_path, active_users
+    FROM pages_screens ${clause}
+  `).all(...params);
+  const rows = proratePagesRows(rawRows, range.start, range.end);
+
+  let total = 0;
+  for (const row of rows) {
+    if (targets.has(normalizePagePath(row.page_path))) {
+      total += row.active_users || 0;
+    }
+  }
+  return total;
+}
+
+function getPageActiveUsersForPath(company, monthKey, path) {
+  return getPageActiveUsersForPaths(company, monthKey, [path]);
+}
+
+function getPageUsersMapForMonth(company, monthKey) {
+  const range = monthKeyToDateRange(monthKey);
+  if (!range) return {};
+  const { clause, params } = buildGa4DateQuery(company, range.start, range.end);
+  const rawRows = db.prepare(`
+    SELECT page_path, active_users
+    FROM pages_screens ${clause}
+  `).all(...params);
+  const rows = proratePagesRows(rawRows, range.start, range.end);
+  const map = {};
+  for (const row of rows) {
+    const p = normalizePagePath(row.page_path);
+    map[p] = (map[p] || 0) + (row.active_users || 0);
+  }
+  return map;
+}
+
+const COMPASS_USES_ROOT = '/compass';
+
+const COMPASS_USES_CATEGORIES = [
+  { key: 'student', label: 'Student', path: '/compass/student' },
+  { key: 'self-sponsored', label: 'Self-sponsored', path: '/compass/self-sponsored' },
+  { key: 'company-sponsored', label: 'Company sponsored', path: '/compass/company-sponsored' },
+  { key: 'family', label: 'Family', path: '/compass/family' },
+  { key: 'askme', label: 'Ask me', path: '/compass/askme' },
+  { key: 'others', label: 'Others', path: '/compass/others' },
+];
+
+function buildCompassUsesFlow(company, monthKey, prevMonthKey = null) {
+  const pages = getPageUsersMapForMonth(company, monthKey);
+  const prevPages = prevMonthKey ? getPageUsersMapForMonth(company, prevMonthKey) : {};
+
+  const rootUsers = pages[COMPASS_USES_ROOT] || 0;
+  const rootPrev = prevPages[COMPASS_USES_ROOT] ?? null;
+
+  const categories = COMPASS_USES_CATEGORIES.map((cat) => {
+    const activeUsers = pages[cat.path] || 0;
+    const prevActiveUsers = prevPages[cat.path] ?? null;
+    const prefix = `${cat.path}/`;
+    const children = Object.entries(pages)
+      .filter(([path]) => path.startsWith(prefix))
+      .map(([path, users]) => ({
+        path,
+        segment: path.slice(prefix.length),
+        label: path.replace(/^\/compass\//, ''),
+        activeUsers: users,
+        prevActiveUsers: prevPages[path] ?? null,
+      }))
+      .sort((a, b) => b.activeUsers - a.activeUsers);
+
+    return {
+      ...cat,
+      url: `https://nyuuly.com${cat.path}`,
+      activeUsers,
+      prevActiveUsers,
+      deltaPct: deltaPct(activeUsers, prevActiveUsers),
+      fromCompassPct: rootUsers > 0 ? Math.round((activeUsers / rootUsers) * 1000) / 10 : null,
+      children,
+      childTotal: children.reduce((s, c) => s + c.activeUsers, 0),
+    };
+  });
+
+  return {
+    root: {
+      path: COMPASS_USES_ROOT,
+      label: 'Compass',
+      url: 'https://nyuuly.com/compass',
+      activeUsers: rootUsers,
+      prevActiveUsers: rootPrev,
+      deltaPct: deltaPct(rootUsers, rootPrev),
+    },
+    categories,
+  };
+}
+
+function buildMobileSimFlowSteps(company, monthKey, prevMonthKey = null) {
+  const currentValues = MOBILE_SIM_FLOW_STEPS.map((step) => ({
+    ...step,
+    activeUsers: getPageActiveUsersForPath(company, monthKey, step.path),
+  }));
+
+  const prevValues = prevMonthKey
+    ? Object.fromEntries(MOBILE_SIM_FLOW_STEPS.map((step) => [
+      step.key,
+      getPageActiveUsersForPath(company, prevMonthKey, step.path),
+    ]))
+    : {};
+
+  return currentValues.map((step, index) => {
+    const prevActiveUsers = prevValues[step.key] ?? null;
+    const prevStepUsers = index > 0 ? currentValues[index - 1].activeUsers : null;
+    const fromPrevStepPct = index > 0 && prevStepUsers > 0
+      ? Math.round((step.activeUsers / prevStepUsers) * 1000) / 10
+      : null;
+    return {
+      key: step.key,
+      label: step.label,
+      path: step.path,
+      url: `https://nyuuly.com${step.path}`,
+      activeUsers: step.activeUsers,
+      prevActiveUsers,
+      deltaPct: deltaPct(step.activeUsers, prevActiveUsers),
+      fromPrevStepPct,
+    };
+  });
+}
+
+function getMobileSimFlowForMonth(company, monthKey) {
+  return { steps: buildMobileSimFlowSteps(company, monthKey) };
 }
 
 function getPlatformRegistrationsForMonth(company, monthKey) {
@@ -1622,17 +1835,29 @@ function buildCombinedFunnelData(monthKey) {
     compassStarted: companySplit(0, ny.compassStarted, 0, nyPrev?.compassStarted),
   };
 
+  const nyMobileSim = getMobileSimFlowForMonth('nyuuly', monthKey).steps;
+  const nyMobileSimPrev = prevKey ? getMobileSimFlowForMonth('nyuuly', prevKey).steps : [];
+  const nyStep = (key) => nyMobileSim.find((s) => s.key === key)?.activeUsers || 0;
+  const nyStepPrev = (key) => nyMobileSimPrev.find((s) => s.key === key)?.activeUsers || 0;
+
   const proceed = buildStageMetricItems([
     { key: 'totalApplications', label: 'Applications', company: 'WORK JAPAN', workjapan: wj.totalApplications || 0, nyuuly: 0 },
-    { key: 'addToCart', label: 'Add to cart', company: 'Nyuuly', workjapan: 0, nyuuly: ny.addToCart || 0 },
-    { key: 'compassFilled', label: 'Compass filled', company: 'Nyuuly', workjapan: 0, nyuuly: ny.compassFilled || 0 },
-    { key: 'welcomePackageStarted', label: 'Welcome package started', company: 'Nyuuly', workjapan: 0, nyuuly: ny.welcomePackageStarted || 0 },
+    { key: 'mobileSimApply', label: 'Mobile Sim — Apply', company: 'Nyuuly', workjapan: 0, nyuuly: nyStep('apply') },
+    { key: 'mobileSimVerify', label: 'Mobile Sim — Verify', company: 'Nyuuly', workjapan: 0, nyuuly: nyStep('verify') },
+    { key: 'mobileSimIdentity', label: 'Mobile Sim — Identity', company: 'Nyuuly', workjapan: 0, nyuuly: nyStep('identity') },
+    { key: 'mobileSimPayment', label: 'Mobile Sim — Payment', company: 'Nyuuly', workjapan: 0, nyuuly: nyStep('payment') },
+    { key: 'mobileSimConfirm', label: 'Mobile Sim — Confirm', company: 'Nyuuly', workjapan: 0, nyuuly: nyStep('confirm') },
   ], (item) => {
     if (!prevKey) return null;
     if (item.key === 'totalApplications') return wjPrev?.totalApplications || 0;
-    if (item.key === 'addToCart') return nyPrev?.addToCart || 0;
-    if (item.key === 'compassFilled') return nyPrev?.compassFilled || 0;
-    return nyPrev?.welcomePackageStarted || 0;
+    const stepMap = {
+      mobileSimApply: 'apply',
+      mobileSimVerify: 'verify',
+      mobileSimIdentity: 'identity',
+      mobileSimPayment: 'payment',
+      mobileSimConfirm: 'confirm',
+    };
+    return nyStepPrev(stepMap[item.key] || item.key);
   });
 
   const result = buildStageMetricItems([
@@ -2162,6 +2387,54 @@ app.get('/api/app-downloads/history', (req, res) => {
   res.json({ history, filter: { company } });
 });
 
+app.get('/api/compass-uses-flow', (req, res) => {
+  const { company, start, end } = req.query;
+  if (company !== 'nyuuly') {
+    return res.status(400).json({ error: 'Compass uses flow is only available for Nyuuly' });
+  }
+  const monthKey = start?.slice(0, 7);
+  if (!monthKey) {
+    return res.json({
+      root: { path: COMPASS_USES_ROOT, label: 'Compass', activeUsers: 0, deltaPct: null },
+      categories: COMPASS_USES_CATEGORIES.map((c) => ({ ...c, activeUsers: 0, children: [], deltaPct: null })),
+      filter: { company, start, end },
+    });
+  }
+
+  const months = getAvailableMonths(company);
+  const idx = months.indexOf(monthKey);
+  const prevKey = idx > 0 ? months[idx - 1] : null;
+  const flow = buildCompassUsesFlow(company, monthKey, prevKey);
+
+  res.json({
+    ...flow,
+    filter: { company, start, end, month: monthKey },
+    prevMonth: prevKey,
+    prevMonthLabel: prevKey ? monthKeyLabel(prevKey) : null,
+  });
+});
+
+app.get('/api/compass-uses-flow/history', (req, res) => {
+  const { company } = req.query;
+  if (company !== 'nyuuly') {
+    return res.status(400).json({ error: 'Compass uses flow is only available for Nyuuly' });
+  }
+  const months = getAvailableMonths(company).slice(-6);
+  const history = months.map((monthKey) => {
+    const { root, categories } = buildCompassUsesFlow(company, monthKey);
+    const entry = {
+      month: monthKey,
+      label: monthKeyLabel(monthKey),
+      compass: root.activeUsers,
+    };
+    for (const cat of categories) {
+      entry[cat.key] = cat.activeUsers;
+    }
+    return entry;
+  });
+  res.json({ history, filter: { company } });
+});
+
 app.get('/api/platform-stats/history', (req, res) => {
   const { company } = req.query;
   const months = getAvailableMonths(company).slice(-6);
@@ -2192,6 +2465,52 @@ app.get('/api/applicant-stats/history', (req, res) => {
       remainingEsp: data.remainingEsp,
       selected: data.selected,
     };
+  });
+  res.json({ history, filter: { company } });
+});
+
+app.get('/api/mobile-sim-flow', (req, res) => {
+  const { company, start, end } = req.query;
+  if (company !== 'nyuuly') {
+    return res.status(400).json({ error: 'Mobile Sim flow is only available for Nyuuly' });
+  }
+  const monthKey = start?.slice(0, 7);
+  if (!monthKey) {
+    return res.json({
+      steps: MOBILE_SIM_FLOW_STEPS.map((s) => ({ ...s, activeUsers: 0, prevActiveUsers: null, deltaPct: null, fromPrevStepPct: null })),
+      filter: { company, start, end },
+    });
+  }
+
+  const months = getAvailableMonths(company);
+  const idx = months.indexOf(monthKey);
+  const prevKey = idx > 0 ? months[idx - 1] : null;
+  const steps = buildMobileSimFlowSteps(company, monthKey, prevKey);
+
+  res.json({
+    steps,
+    filter: { company, start, end, month: monthKey },
+    prevMonth: prevKey,
+    prevMonthLabel: prevKey ? monthKeyLabel(prevKey) : null,
+  });
+});
+
+app.get('/api/mobile-sim-flow/history', (req, res) => {
+  const { company } = req.query;
+  if (company !== 'nyuuly') {
+    return res.status(400).json({ error: 'Mobile Sim flow is only available for Nyuuly' });
+  }
+  const months = getAvailableMonths(company).slice(-6);
+  const history = months.map((monthKey) => {
+    const { steps } = getMobileSimFlowForMonth(company, monthKey);
+    const entry = {
+      month: monthKey,
+      label: monthKeyLabel(monthKey),
+    };
+    for (const step of steps) {
+      entry[step.key] = step.activeUsers;
+    }
+    return entry;
   });
   res.json({ history, filter: { company } });
 });
@@ -2765,13 +3084,14 @@ app.get('/api/available-months', (req, res) => {
   res.json({
     months: months.map((key) => ({ key, label: monthKeyLabel(key) })),
     latest: months.length ? months[months.length - 1] : null,
+    defaultMonth: getDefaultMonthKey(company, months),
   });
 });
 
 app.get('/api/monthly', (req, res) => {
   const { company } = req.query;
   const months = getAvailableMonths(company);
-  const month = req.query.month || (months.length ? months[months.length - 1] : null);
+  const month = req.query.month || getDefaultMonthKey(company, months);
 
   if (!month) {
     return res.json({ month: null, prevMonth: null, kpis: {}, months: [] });
@@ -2804,7 +3124,7 @@ app.get('/api/monthly', (req, res) => {
 app.get('/api/combined-funnel', (req, res) => {
   try {
     const months = getCombinedAvailableMonths();
-    const month = req.query.month || (months.length ? months[months.length - 1] : null);
+    const month = req.query.month || getDefaultMonthKey(null, months);
     if (!month) {
       return res.json({ month: null, months: [], stages: null, pipeline: null });
     }
@@ -2819,6 +3139,7 @@ app.get('/api/combined-funnel/months', (req, res) => {
   res.json({
     months: months.map((key) => ({ key, label: monthKeyLabel(key) })),
     latest: months.length ? months[months.length - 1] : null,
+    defaultMonth: getDefaultMonthKey(null, months),
   });
 });
 

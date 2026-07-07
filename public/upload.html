@@ -125,7 +125,7 @@
 
     <div class="manual-upload-section nyuuly-only" id="nyuulyManualSection">
       <h2>Manual Data Entry — Nyuuly Commit</h2>
-      <p>Enter monthly <strong>Nyuuly Subscribe</strong>, <strong>Compass started</strong>, <strong>Proceed (Uses)</strong>, and <strong>Result</strong> counts. Shown in the <strong>Commit</strong>, <strong>Proceed</strong>, and <strong>Result</strong> stages on the Nyuuly dashboard.</p>
+      <p>Enter monthly <strong>Nyuuly Subscribe</strong>, <strong>Compass started</strong>, and <strong>Result</strong> counts. Shown in the <strong>Commit</strong> and <strong>Result</strong> stages on the Nyuuly dashboard. <strong>Proceed (Uses)</strong> uses the Pages CSV automatically.</p>
 
       <div class="upload-slot entry-slot" id="manualNyuulyCommitSlot">
         <div class="upload-slot-header">
@@ -148,34 +148,6 @@
             </div>
           </div>
           <button type="submit" class="btn-primary btn-slot" id="nyuulyCommitSaveBtn">Save Commit Metrics</button>
-        </form>
-      </div>
-
-      <div class="upload-slot entry-slot" id="manualNyuulyProceedSlot">
-        <div class="upload-slot-header">
-          <h3>Proceed (Uses) — Add to Cart &amp; Welcome Package</h3>
-          <span class="slot-badge slot-badge-pending" id="nyuulyProceedBadge">No data</span>
-        </div>
-        <form class="entry-form" id="nyuulyProceedEntryForm">
-          <div class="entry-form-row">
-            <label for="nyuulyProceedMonth">Month</label>
-            <input type="month" id="nyuulyProceedMonth" name="month" required>
-          </div>
-          <div class="entry-grid">
-            <div class="entry-field">
-              <label for="addToCart">Add to cart</label>
-              <input type="number" id="addToCart" min="0" placeholder="0">
-            </div>
-            <div class="entry-field">
-              <label for="welcomePackageStarted">Welcome package process started</label>
-              <input type="number" id="welcomePackageStarted" min="0" placeholder="0">
-            </div>
-            <div class="entry-field">
-              <label for="compassFilled">Compass filled</label>
-              <input type="number" id="compassFilled" min="0" placeholder="0">
-            </div>
-          </div>
-          <button type="submit" class="btn-primary btn-slot" id="nyuulyProceedSaveBtn">Save Proceed Metrics</button>
         </form>
       </div>
 
@@ -614,7 +586,7 @@
 
     function initMonthInputs() {
       const val = defaultMonthValue();
-      ['platformMonth', 'applicantMonth', 'geoMonth', 'visaMonth', 'nationalityMonth', 'barriersMonth', 'socialChannelsMonth', 'brandMessageMonth', 'appDownloadsMonth', 'nyuulyCommitMonth', 'nyuulyProceedMonth', 'nyuulyResultMonth'].forEach((id) => {
+      ['platformMonth', 'applicantMonth', 'geoMonth', 'visaMonth', 'nationalityMonth', 'barriersMonth', 'socialChannelsMonth', 'brandMessageMonth', 'appDownloadsMonth', 'nyuulyCommitMonth', 'nyuulyResultMonth'].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.value = val;
       });
@@ -646,16 +618,6 @@
       const info = status?.manualFiles?.['nyuuly-commit'] || { uploaded: false };
       const badge = document.getElementById('nyuulyCommitBadge');
       const slot = document.getElementById('manualNyuulyCommitSlot');
-      if (!badge) return;
-      badge.className = `slot-badge ${info.uploaded ? 'slot-badge-done' : 'slot-badge-pending'}`;
-      badge.textContent = info.uploaded ? 'Saved' : 'No data';
-      slot?.classList.toggle('upload-slot-done', info.uploaded);
-    }
-
-    function updateNyuulyProceedStatus(status) {
-      const info = status?.manualFiles?.['nyuuly-proceed'] || { uploaded: false };
-      const badge = document.getElementById('nyuulyProceedBadge');
-      const slot = document.getElementById('manualNyuulyProceedSlot');
       if (!badge) return;
       badge.className = `slot-badge ${info.uploaded ? 'slot-badge-done' : 'slot-badge-pending'}`;
       badge.textContent = info.uploaded ? 'Saved' : 'No data';
@@ -707,7 +669,6 @@
       updateBrandMessageStatus(status);
       updateAppDownloadsStatus(status);
       updateNyuulyCommitStatus(status);
-      updateNyuulyProceedStatus(status);
       updateNyuulyResultStatus(status);
       if (companySelect.value !== 'workjapan') return;
       const configs = [
@@ -781,57 +742,6 @@
       } finally {
         btn.disabled = false;
         btn.textContent = 'Save Commit Metrics';
-      }
-    }
-
-    async function loadNyuulyProceedFormData() {
-      const month = document.getElementById('nyuulyProceedMonth')?.value;
-      if (!month || companySelect.value !== 'nyuuly') return;
-      const { start, end } = monthToRange(month);
-      document.getElementById('addToCart').value = '';
-      document.getElementById('welcomePackageStarted').value = '';
-      document.getElementById('compassFilled').value = '';
-      try {
-        const res = await fetch(`/api/nyuuly-proceed-stats?company=nyuuly&start=${start}&end=${end}`);
-        const data = await res.json();
-        const latest = data.latest || data.kpis;
-        if (latest) {
-          document.getElementById('addToCart').value = latest.add_to_cart ?? latest.addToCart ?? '';
-          document.getElementById('welcomePackageStarted').value = latest.welcome_package_started ?? latest.welcomePackageStarted ?? '';
-          document.getElementById('compassFilled').value = latest.compass_filled ?? latest.compassFilled ?? '';
-        }
-      } catch (err) {
-        console.error('Failed to load Nyuuly proceed form data:', err);
-      }
-    }
-
-    async function handleNyuulyProceedEntry(e) {
-      e.preventDefault();
-      const btn = document.getElementById('nyuulyProceedSaveBtn');
-      const month = document.getElementById('nyuulyProceedMonth').value;
-      btn.disabled = true;
-      btn.textContent = 'Saving...';
-      try {
-        const res = await fetch('/api/manual/nyuuly-proceed', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            company: 'nyuuly',
-            month,
-            add_to_cart: document.getElementById('addToCart').value,
-            welcome_package_started: document.getElementById('welcomePackageStarted').value,
-            compass_filled: document.getElementById('compassFilled').value,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Save failed');
-        showToast(`Saved proceed metrics for ${data.month}`, 'success');
-        loadStatus();
-      } catch (err) {
-        showToast(err.message, 'error');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Save Proceed Metrics';
       }
     }
 
@@ -1367,7 +1277,6 @@
         loadApplicantFormData();
       } else {
         loadNyuulyCommitFormData();
-        loadNyuulyProceedFormData();
         loadNyuulyResultFormData();
       }
     });
@@ -1380,8 +1289,6 @@
     document.getElementById('appDownloadsEntryForm').addEventListener('submit', handleAppDownloadsEntry);
     document.getElementById('nyuulyCommitMonth')?.addEventListener('change', loadNyuulyCommitFormData);
     document.getElementById('nyuulyCommitEntryForm')?.addEventListener('submit', handleNyuulyCommitEntry);
-    document.getElementById('nyuulyProceedMonth')?.addEventListener('change', loadNyuulyProceedFormData);
-    document.getElementById('nyuulyProceedEntryForm')?.addEventListener('submit', handleNyuulyProceedEntry);
     document.getElementById('nyuulyResultMonth')?.addEventListener('change', loadNyuulyResultFormData);
     document.getElementById('nyuulyResultEntryForm')?.addEventListener('submit', handleNyuulyResultEntry);
     document.getElementById('platformMonth').addEventListener('change', loadPlatformFormData);
@@ -1405,7 +1312,6 @@
     loadPlatformFormData();
     loadApplicantFormData();
     loadNyuulyCommitFormData();
-    loadNyuulyProceedFormData();
     loadNyuulyResultFormData();
   </script>
 </body>

@@ -218,7 +218,7 @@
       <span class="funnel-stage-num">4</span>
       <div>
         <h2 class="funnel-stage-title">Proceed (Uses)</h2>
-        <p class="funnel-stage-question">How many users add to cart, start the welcome package, and complete Compass?</p>
+        <p class="funnel-stage-question">How many users move through Mobile Sim apply and Compass page paths?</p>
       </div>
     </div>
 
@@ -228,11 +228,36 @@
         <span class="collapse-icon">▼</span>
       </div>
       <div class="section-body">
-        <p class="subsection-hint">Enter monthly counts on the <a href="/upload">upload page</a>.</p>
-        <div class="kpi-row" id="nyuulyProceedKpis"></div>
-        <div class="chart-container">
-          <div class="chart-header"><h3>Proceed metrics — last 6 months</h3><button class="chart-download" data-chart="chartNyuulyProceed">PNG</button></div>
-          <div class="chart-wrapper"><canvas id="chartNyuulyProceed"></canvas></div>
+        <h3 class="subsection-title">Flow of Mobile Sim</h3>
+        <p class="subsection-hint">Uses <strong>Active users</strong> per page path from the uploaded <strong>Pages CSV</strong>. Apply → Verify → Identity → Payment → Confirm.</p>
+        <div class="mobile-sim-funnel" id="mobileSimFlowFunnel"></div>
+        <div class="kpi-row" id="mobileSimFlowKpis"></div>
+        <div id="mobileSimFlowTable"></div>
+        <div class="chart-grid">
+          <div class="chart-container">
+            <div class="chart-header"><h3>This month — users at each step</h3><button class="chart-download" data-chart="chartMobileSimFunnel">PNG</button></div>
+            <div class="chart-wrapper chart-wrapper-sm"><canvas id="chartMobileSimFunnel"></canvas></div>
+          </div>
+          <div class="chart-container">
+            <div class="chart-header"><h3>Step trend — last 6 months</h3><button class="chart-download" data-chart="chartMobileSimFlow">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartMobileSimFlow"></canvas></div>
+          </div>
+        </div>
+
+        <h3 class="subsection-title">Compass uses</h3>
+        <p class="subsection-hint">Path exploration from <strong>/compass</strong> → category pages → sub-pages (e.g. <code>/compass/student/1</code>). Uses <strong>Active users</strong> from the Pages CSV.</p>
+        <div class="path-exploration" id="compassUsesPathExploration"></div>
+        <div class="kpi-row" id="compassUsesKpis"></div>
+        <div id="compassUsesTable"></div>
+        <div class="chart-grid">
+          <div class="chart-container">
+            <div class="chart-header"><h3>This month — users by Compass category</h3><button class="chart-download" data-chart="chartCompassUsesCategories">PNG</button></div>
+            <div class="chart-wrapper chart-wrapper-sm"><canvas id="chartCompassUsesCategories"></canvas></div>
+          </div>
+          <div class="chart-container">
+            <div class="chart-header"><h3>Compass category trend — last 6 months</h3><button class="chart-download" data-chart="chartCompassUsesHistory">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartCompassUsesHistory"></canvas></div>
+          </div>
         </div>
       </div>
     </section>

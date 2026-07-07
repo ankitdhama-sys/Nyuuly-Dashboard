@@ -493,7 +493,7 @@ async function loadMonths() {
   const res = await fetch('/api/combined-funnel/months');
   const data = await res.json();
   state.months = data.months || [];
-  state.month = data.latest || (state.months.length ? state.months[state.months.length - 1].key : null);
+  state.month = data.defaultMonth || data.latest || (state.months.length ? state.months[state.months.length - 1].key : null);
 
   const sel = document.getElementById('monthSelect');
   sel.innerHTML = state.months.map((m) =>
