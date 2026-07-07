@@ -284,6 +284,17 @@ function initDb() {
       upload_date TEXT DEFAULT (date('now')),
       UNIQUE(company, month_label)
     );
+
+    CREATE TABLE IF NOT EXISTS brand_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      company TEXT NOT NULL,
+      month_label TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      month INTEGER NOT NULL,
+      message TEXT NOT NULL DEFAULT '',
+      upload_date TEXT DEFAULT (date('now')),
+      UNIQUE(company, month_label)
+    );
   `);
 }
 
