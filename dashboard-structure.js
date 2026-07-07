@@ -13,7 +13,7 @@ const WORKJAPAN_FUNNEL_STAGES = [
     anchor: 'stage-awareness',
     dataSources: ['Social CSV (Meta / IG exports)', 'Search Console zip (GSC Performance)', 'Social channel views (manual)'],
     journeyIds: ['awareness'],
-    sectionIds: ['section-social'],
+    sectionIds: ['section-brand-message', 'section-social'],
   },
   {
     id: 'consideration',
@@ -73,7 +73,7 @@ const NYUULY_FUNNEL_STAGES = [
     anchor: 'stage-awareness',
     dataSources: ['Social CSV', 'Search Console zip (GSC Performance)', 'Social channel views (manual)'],
     journeyIds: ['awareness'],
-    sectionIds: ['section-social', 'section-gsc-awareness'],
+    sectionIds: ['section-brand-message', 'section-social', 'section-gsc-awareness'],
   },
   {
     id: 'consideration',

@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Combined Funnel — Nyuuly &amp; WORK JAPAN</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body class="combined-page">
+  <nav class="nav">
+    <div class="nav-brand">Analytics Dashboard</div>
+    <div class="nav-links">
+      <a href="/">Dashboard</a>
+      <a href="/combined" class="active">Combined Funnel</a>
+      <a href="/upload">Upload Data</a>
+      <span class="nav-updated" id="lastUpdated">Last updated: —</span>
+    </div>
+  </nav>
+
+  <div class="controls combined-controls">
+    <select id="monthSelect" class="month-select"></select>
+    <div class="filter-label" id="filterLabel">Loading…</div>
+  </div>
+
+  <main class="main combined-main">
+    <section class="section combined-intro">
+      <div class="section-body">
+        <h1 class="combined-title">Combined Funnel — Both Companies</h1>
+        <p class="subsection-hint">Totals across Nyuuly and WORK JAPAN for the same five-stage journey, with month-over-month comparison and contribution breakdown.</p>
+        <div class="funnel-pipeline combined-pipeline" id="combinedPipeline"></div>
+      </div>
+    </section>
+
+    <div class="funnel-stage-banner combined-stage-banner" id="stage-awareness">
+      <span class="funnel-stage-num">1</span>
+      <div>
+        <h2 class="funnel-stage-title">Awareness</h2>
+        <p class="funnel-stage-question">Combined website awareness — GSC impressions + manual social channel views</p>
+      </div>
+    </div>
+    <section class="section" id="section-awareness">
+      <div class="section-body">
+        <div class="kpi-row" id="awarenessKpis"></div>
+        <div id="combinedBrandMessages" class="combined-brand-messages"></div>
+        <div class="chart-grid">
+          <div class="chart-container">
+            <div class="chart-header"><h3>Total awareness by company</h3></div>
+            <div class="chart-wrapper chart-wrapper-sm"><canvas id="chartAwarenessSplit"></canvas></div>
+          </div>
+          <div class="chart-container">
+            <div class="chart-header"><h3>Awareness components</h3></div>
+            <div class="chart-wrapper chart-wrapper-sm"><canvas id="chartAwarenessComponents"></canvas></div>
+          </div>
+        </div>
+        <div id="awarenessBreakdown"></div>
+      </div>
+    </section>
+
+    <div class="funnel-stage-banner combined-stage-banner" id="stage-consideration">
+      <span class="funnel-stage-num">2</span>
+      <div>
+        <h2 class="funnel-stage-title">Consideration</h2>
+        <p class="funnel-stage-question">Total website users from GA4 User Acquisition — both companies combined</p>
+      </div>
+    </div>
+    <section class="section" id="section-consideration">
+      <div class="section-body">
+        <div class="kpi-row" id="considerationKpis"></div>
+        <div class="chart-grid">
+          <div class="chart-container">
+            <div class="chart-header"><h3>Website users by company</h3></div>
+            <div class="chart-wrapper chart-wrapper-sm"><canvas id="chartUsersSplit"></canvas></div>
+          </div>
+          <div class="chart-container full-width">
+            <div class="chart-header"><h3>Users by acquisition medium (combined)</h3></div>
+            <div class="chart-wrapper"><canvas id="chartUsersByMedium"></canvas></div>
+          </div>
+        </div>
+        <div id="considerationBreakdown"></div>
+      </div>
+    </section>
+
+    <div class="funnel-stage-banner combined-stage-banner" id="stage-commit">
+      <span class="funnel-stage-num">3</span>
+      <div>
+        <h2 class="funnel-stage-title">Commit</h2>
+        <p class="funnel-stage-question">Total sign-ups (WORK JAPAN registrations + Nyuuly Subscribe) and app downloads</p>
+      </div>
+    </div>
+    <section class="section" id="section-commit">
+      <div class="section-body">
+        <div class="kpi-row" id="commitKpis"></div>
+        <div class="chart-grid">
+          <div class="chart-container">
+            <div class="chart-header"><h3>Sign-ups by company</h3></div>
+            <div class="chart-wrapper chart-wrapper-sm"><canvas id="chartSignUpsSplit"></canvas></div>
+          </div>
+          <div class="chart-container">
+            <div class="chart-header"><h3>App downloads by company</h3></div>
+            <div class="chart-wrapper chart-wrapper-sm"><canvas id="chartAppDownloadsSplit"></canvas></div>
+          </div>
+        </div>
+        <div id="commitBreakdown"></div>
+      </div>
+    </section>
+
+    <div class="funnel-stage-banner combined-stage-banner" id="stage-proceed">
+      <span class="funnel-stage-num">4</span>
+      <div>
+        <h2 class="funnel-stage-title">Proceed</h2>
+        <p class="funnel-stage-question">Applications, add to cart, Compass filled, and welcome package started — combined</p>
+      </div>
+    </div>
+    <section class="section" id="section-proceed">
+      <div class="section-body">
+        <div class="kpi-row" id="proceedKpis"></div>
+        <div class="chart-grid">
+          <div class="chart-container">
+            <div class="chart-header"><h3>Proceed metrics — share of total</h3></div>
+            <div class="chart-wrapper chart-wrapper-sm"><canvas id="chartProceedShare"></canvas></div>
+          </div>
+          <div class="chart-container">
+            <div class="chart-header"><h3>Proceed metrics — values</h3></div>
+            <div class="chart-wrapper chart-wrapper-sm"><canvas id="chartProceedValues"></canvas></div>
+          </div>
+        </div>
+        <div id="proceedBreakdown"></div>
+      </div>
+    </section>
+
+    <div class="funnel-stage-banner combined-stage-banner" id="stage-result">
+      <span class="funnel-stage-num">5</span>
+      <div>
+        <h2 class="funnel-stage-title">Result</h2>
+        <p class="funnel-stage-question">Final outcomes from both companies — hires, purchases, and conversions</p>
+      </div>
+    </div>
+    <section class="section" id="section-result">
+      <div class="section-body">
+        <div class="kpi-row" id="resultKpis"></div>
+        <div class="chart-grid">
+          <div class="chart-container">
+            <div class="chart-header"><h3>Result metrics — share of total</h3></div>
+            <div class="chart-wrapper chart-wrapper-sm"><canvas id="chartResultShare"></canvas></div>
+          </div>
+          <div class="chart-container">
+            <div class="chart-header"><h3>Result metrics — values</h3></div>
+            <div class="chart-wrapper chart-wrapper-sm"><canvas id="chartResultValues"></canvas></div>
+          </div>
+        </div>
+        <div id="resultBreakdown"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/combined.js"></script>
+</body>
+</html>

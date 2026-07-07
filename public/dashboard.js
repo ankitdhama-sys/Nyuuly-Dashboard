@@ -1339,6 +1339,31 @@ const SOCIAL_PLATFORM_COLORS = {
   YouTube: '#FF0000',
 };
 
+function renderBrandMessage(data, monthly) {
+  const el = document.getElementById('brandMessagePanel');
+  if (!el) return;
+
+  const message = data?.message?.trim();
+  if (!message) {
+    el.innerHTML = '<div class="empty-state">No brand message for this month — <a href="/upload">add the key message on the upload page</a></div>';
+    return;
+  }
+
+  const period = monthly?.monthLabel
+    ? `<span class="consideration-audience-period">${monthly.monthLabel} key message</span>`
+    : '';
+  el.innerHTML = `
+    ${period}
+    <blockquote class="brand-message-quote">${escapeHtml(message)}</blockquote>
+  `;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
 function renderSocialSectionContribution(journeys, deltas) {
   const el = document.getElementById('socialAwarenessContrib');
   if (!el) return;
@@ -1914,6 +1939,9 @@ async function loadDashboard() {
     renderGscKpis(gsc, deltas);
     renderGscCharts(gsc);
     renderGscQueriesTable(gsc);
+
+    const brandMessage = await fetchJSONSafe(`/api/brand-message?${q}`, { message: '' });
+    renderBrandMessage(brandMessage, monthly);
 
     const [usersHistory, appDownloadsHistory] = await Promise.all([
       fetchJSONSafe(`/api/users/history?company=${state.company}`, { history: [] }),

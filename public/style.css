@@ -1926,3 +1926,142 @@ body.is-loading .filter-label::after {
     gap: 0.5rem;
   }
 }
+
+/* Combined funnel page */
+.combined-page .combined-title {
+  font-size: 1.35rem;
+  margin: 0 0 0.35rem;
+}
+
+.combined-intro .section-body {
+  padding-top: 0.5rem;
+}
+
+.combined-controls {
+  border-bottom: 1px solid var(--border);
+}
+
+.combined-pipeline {
+  margin-top: 1rem;
+}
+
+.combined-stage-banner {
+  margin-top: 1.5rem;
+}
+
+.kpi-card-combined {
+  border-color: rgba(79, 142, 247, 0.35);
+  background: linear-gradient(135deg, rgba(79, 142, 247, 0.08), rgba(255, 107, 53, 0.06));
+}
+
+.kpi-sub {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
+.company-tag {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.company-tag-wj {
+  background: rgba(255, 107, 53, 0.15);
+  color: #ff8c5a;
+}
+
+.company-tag-nyuuly {
+  background: rgba(79, 142, 247, 0.15);
+  color: #7eb0ff;
+}
+
+.combined-breakdown-table td,
+.combined-breakdown-table th {
+  font-size: 0.85rem;
+}
+
+.chart-wrapper-sm {
+  min-height: 220px;
+  max-height: 260px;
+}
+
+.brand-message-panel {
+  margin-bottom: 0.5rem;
+}
+
+.brand-message-quote {
+  margin: 0.5rem 0 0;
+  padding: 1rem 1.25rem;
+  border-left: 4px solid var(--accent, #4F8EF7);
+  background: var(--surface-2);
+  border-radius: 0 8px 8px 0;
+  font-size: 1.05rem;
+  line-height: 1.55;
+  color: var(--text);
+  font-style: normal;
+}
+
+.company-workjapan .brand-message-quote {
+  border-left-color: #FF6B35;
+}
+
+.company-nyuuly .brand-message-quote {
+  border-left-color: #4F8EF7;
+}
+
+.entry-field-wide textarea {
+  width: 100%;
+  min-height: 100px;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
+.combined-brand-messages {
+  margin-bottom: 1.25rem;
+}
+
+.combined-brand-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.brand-message-card {
+  padding: 1rem 1.1rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.brand-message-card-wj {
+  border-top: 3px solid #FF6B35;
+}
+
+.brand-message-card-nyuuly {
+  border-top: 3px solid #4F8EF7;
+}
+
+.brand-message-company {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.brand-message-card .brand-message-quote {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 0.95rem;
+}

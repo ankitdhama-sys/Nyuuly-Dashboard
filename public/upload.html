@@ -11,6 +11,7 @@
     <div class="nav-brand">Analytics Dashboard</div>
     <div class="nav-links">
       <a href="/">Dashboard</a>
+      <a href="/combined">Combined Funnel</a>
       <a href="/upload" class="active">Upload Data</a>
     </div>
   </nav>
@@ -74,6 +75,25 @@
           </table>
         </div>
         <button type="submit" class="btn-primary btn-slot" id="socialChannelsSaveBtn">Save Social Channel Views</button>
+      </form>
+    </div>
+
+    <div class="upload-slot entry-slot brand-message-slot" id="manualBrandMessageSlot">
+      <div class="upload-slot-header">
+        <h3>Brand Message (Awareness)</h3>
+        <span class="slot-badge slot-badge-pending" id="brandMessageBadge">No data</span>
+      </div>
+      <p class="slot-meta slot-meta-muted">Enter the monthly <strong>key brand message</strong> you are generating awareness for. Shown at the top of the <strong>Awareness</strong> stage on the dashboard for the selected company.</p>
+      <form class="entry-form" id="brandMessageEntryForm">
+        <div class="entry-form-row">
+          <label for="brandMessageMonth">Month</label>
+          <input type="month" id="brandMessageMonth" name="month" required>
+        </div>
+        <div class="entry-field entry-field-wide">
+          <label for="brandMessageText">Key brand message</label>
+          <textarea id="brandMessageText" rows="4" placeholder="e.g. Your trusted partner for starting life in Japan" required></textarea>
+        </div>
+        <button type="submit" class="btn-primary btn-slot" id="brandMessageSaveBtn">Save Brand Message</button>
       </form>
     </div>
 
@@ -594,7 +614,7 @@
 
     function initMonthInputs() {
       const val = defaultMonthValue();
-      ['platformMonth', 'applicantMonth', 'geoMonth', 'visaMonth', 'nationalityMonth', 'barriersMonth', 'socialChannelsMonth', 'appDownloadsMonth', 'nyuulyCommitMonth', 'nyuulyProceedMonth', 'nyuulyResultMonth'].forEach((id) => {
+      ['platformMonth', 'applicantMonth', 'geoMonth', 'visaMonth', 'nationalityMonth', 'barriersMonth', 'socialChannelsMonth', 'brandMessageMonth', 'appDownloadsMonth', 'nyuulyCommitMonth', 'nyuulyProceedMonth', 'nyuulyResultMonth'].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.value = val;
       });
@@ -662,6 +682,16 @@
       slot?.classList.toggle('upload-slot-done', info.uploaded);
     }
 
+    function updateBrandMessageStatus(status) {
+      const info = status?.manualFiles?.['brand-message'] || { uploaded: false };
+      const badge = document.getElementById('brandMessageBadge');
+      const slot = document.getElementById('manualBrandMessageSlot');
+      if (!badge) return;
+      badge.className = `slot-badge ${info.uploaded ? 'slot-badge-done' : 'slot-badge-pending'}`;
+      badge.textContent = info.uploaded ? 'Saved' : 'No data';
+      slot?.classList.toggle('upload-slot-done', info.uploaded);
+    }
+
     function updateAppDownloadsStatus(status) {
       const info = status?.manualFiles?.['app-downloads'] || { uploaded: false };
       const badge = document.getElementById('appDownloadsBadge');
@@ -674,6 +704,7 @@
 
     function updateManualStatus(status) {
       updateSocialChannelsStatus(status);
+      updateBrandMessageStatus(status);
       updateAppDownloadsStatus(status);
       updateNyuulyCommitStatus(status);
       updateNyuulyProceedStatus(status);
@@ -855,6 +886,49 @@
       } finally {
         btn.disabled = false;
         btn.textContent = 'Save Result Metrics';
+      }
+    }
+
+    async function loadBrandMessageFormData() {
+      const month = document.getElementById('brandMessageMonth')?.value;
+      const company = companySelect.value;
+      document.getElementById('brandMessageText').value = '';
+      if (!month) return;
+      const { start, end } = monthToRange(month);
+      try {
+        const res = await fetch(`/api/brand-message?company=${company}&start=${start}&end=${end}`);
+        const data = await res.json();
+        if (data.message) document.getElementById('brandMessageText').value = data.message;
+      } catch (err) {
+        console.error('Failed to load brand message:', err);
+      }
+    }
+
+    async function handleBrandMessageEntry(e) {
+      e.preventDefault();
+      const btn = document.getElementById('brandMessageSaveBtn');
+      const month = document.getElementById('brandMessageMonth').value;
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+      try {
+        const res = await fetch('/api/manual/brand-message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            company: companySelect.value,
+            month,
+            message: document.getElementById('brandMessageText').value,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Save failed');
+        showToast(`Saved brand message for ${data.month}`, 'success');
+        loadStatus();
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save Brand Message';
       }
     }
 
@@ -1286,6 +1360,7 @@
       updateManualSectionVisibility();
       loadStatus();
       loadSocialChannelsFormData();
+      loadBrandMessageFormData();
       loadAppDownloadsFormData();
       if (companySelect.value === 'workjapan') {
         loadPlatformFormData();
@@ -1299,6 +1374,8 @@
 
     document.getElementById('socialChannelsMonth').addEventListener('change', loadSocialChannelsFormData);
     document.getElementById('socialChannelsEntryForm').addEventListener('submit', handleSocialChannelsEntry);
+    document.getElementById('brandMessageMonth').addEventListener('change', loadBrandMessageFormData);
+    document.getElementById('brandMessageEntryForm').addEventListener('submit', handleBrandMessageEntry);
     document.getElementById('appDownloadsMonth').addEventListener('change', loadAppDownloadsFormData);
     document.getElementById('appDownloadsEntryForm').addEventListener('submit', handleAppDownloadsEntry);
     document.getElementById('nyuulyCommitMonth')?.addEventListener('change', loadNyuulyCommitFormData);
@@ -1323,6 +1400,7 @@
     loadStatus();
     loadHistory();
     loadSocialChannelsFormData();
+    loadBrandMessageFormData();
     loadAppDownloadsFormData();
     loadPlatformFormData();
     loadApplicantFormData();

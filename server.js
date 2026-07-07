@@ -758,6 +758,7 @@ const MONTH_KEY_SQL = {
   nyuuly_commit_stats: `printf('%04d-%02d', year, month)`,
   nyuuly_proceed_stats: `printf('%04d-%02d', year, month)`,
   nyuuly_result_stats: `printf('%04d-%02d', year, month)`,
+  brand_messages: `printf('%04d-%02d', year, month)`,
   monthly: `printf('%04d-%02d', year, month)`,
 };
 
@@ -790,6 +791,7 @@ function getAvailableMonths(company) {
     `SELECT DISTINCT ${MONTH_KEY_SQL.nyuuly_commit_stats} AS mk FROM nyuuly_commit_stats ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.nyuuly_proceed_stats} AS mk FROM nyuuly_proceed_stats ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.nyuuly_result_stats} AS mk FROM nyuuly_result_stats ${co.clause}`,
+    `SELECT DISTINCT ${MONTH_KEY_SQL.brand_messages} AS mk FROM brand_messages ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.monthly} AS mk FROM platform_stats ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.monthly} AS mk FROM applicant_stats ${co.clause}`,
   ];
@@ -1164,6 +1166,40 @@ function getNyuulyResultForMonth(company, monthKey) {
   };
 }
 
+function saveBrandMessageRow(company, parsedMonth, message) {
+  db.prepare(`
+    INSERT OR REPLACE INTO brand_messages
+    (company, month_label, year, month, message)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(
+    company,
+    parsedMonth.month_label,
+    parsedMonth.year,
+    parsedMonth.month,
+    String(message || '').trim()
+  );
+}
+
+function getBrandMessageForMonth(company, monthKey) {
+  const parsed = parseMonthLabel(monthKey);
+  if (!parsed) return { message: '', month_label: null };
+  const coFilter = company && company !== 'all' ? 'company = ? AND' : '';
+  const params = company && company !== 'all'
+    ? [company, parsed.year, parsed.month]
+    : [parsed.year, parsed.month];
+
+  const row = db.prepare(`
+    SELECT message, month_label
+    FROM brand_messages
+    WHERE ${coFilter} year = ? AND month = ?
+  `).get(...params);
+
+  return {
+    message: row?.message || '',
+    month_label: row?.month_label || null,
+  };
+}
+
 function getPlatformRegistrationsForMonth(company, monthKey) {
   const parsed = parseMonthLabel(monthKey);
   if (!parsed) return { totalRegistrations: 0, platforms: [] };
@@ -1312,6 +1348,11 @@ function getManualDataStatus(company) {
     FROM nyuuly_result_stats WHERE company = ?
   `).get(company);
 
+  const brandMessageRows = db.prepare(`
+    SELECT COUNT(*) as count, MAX(month_label) as latestMonth, MAX(upload_date) as lastUpdated
+    FROM brand_messages WHERE company = ?
+  `).get(company);
+
   const statusBlock = (rows) => ({
     uploaded: rows.count > 0,
     rowsAdded: rows.count,
@@ -1331,6 +1372,7 @@ function getManualDataStatus(company) {
     'nyuuly-commit': statusBlock(nyuulyCommitRows),
     'nyuuly-proceed': statusBlock(nyuulyProceedRows),
     'nyuuly-result': statusBlock(nyuulyResultRows),
+    'brand-message': statusBlock(brandMessageRows),
   };
 }
 
@@ -1468,10 +1510,171 @@ function getUploadStatusByMonth(company) {
   return { months, grid };
 }
 
+function getCombinedAvailableMonths() {
+  const set = new Set([
+    ...getAvailableMonths('workjapan'),
+    ...getAvailableMonths('nyuuly'),
+  ]);
+  return [...set].sort();
+}
+
+function getUsersByChannelForMonth(company, monthKey) {
+  const range = monthKeyToDateRange(monthKey);
+  if (!range) return {};
+  const { clause, params } = buildGa4DateQuery(company, range.start, range.end);
+  const rawRows = db.prepare(`
+    SELECT channel_group, total_users
+    FROM user_acquisition ${clause}
+  `).all(...params);
+  const rows = prorateUsersRows(rawRows, range.start, range.end);
+  const map = {};
+  for (const row of rows) {
+    const ch = row.channel_group || 'Unknown';
+    map[ch] = (map[ch] || 0) + (row.total_users || 0);
+  }
+  return map;
+}
+
+function metricBlock(value, prevValue) {
+  const v = value || 0;
+  const p = prevValue ?? null;
+  return { value: v, prevValue: p, deltaPct: deltaPct(v, p) };
+}
+
+function companySplit(wjVal, nyVal, wjPrev, nyPrev) {
+  const total = (wjVal || 0) + (nyVal || 0);
+  const prevTotal = wjPrev != null || nyPrev != null
+    ? (wjPrev || 0) + (nyPrev || 0)
+    : null;
+  return {
+    total: metricBlock(total, prevTotal),
+    workjapan: { value: wjVal || 0, prevValue: wjPrev ?? null },
+    nyuuly: { value: nyVal || 0, prevValue: nyPrev ?? null },
+    workjapanPct: total > 0 ? Math.round(((wjVal || 0) / total) * 1000) / 10 : 0,
+    nyuulyPct: total > 0 ? Math.round(((nyVal || 0) / total) * 1000) / 10 : 0,
+  };
+}
+
+function buildStageMetricItems(items, prevResolver) {
+  const enriched = items.map((item) => {
+    const value = (item.workjapan || 0) + (item.nyuuly || 0);
+    const prevValue = prevResolver ? prevResolver(item) : null;
+    return { ...item, value, ...metricBlock(value, prevValue) };
+  });
+  const total = enriched.reduce((s, i) => s + i.value, 0);
+  const prevTotal = enriched.every((i) => i.prevValue == null)
+    ? null
+    : enriched.reduce((s, i) => s + (i.prevValue || 0), 0);
+  enriched.forEach((item) => {
+    item.pct = total > 0 ? Math.round((item.value / total) * 1000) / 10 : 0;
+  });
+  return {
+    total: metricBlock(total, prevTotal),
+    items: enriched,
+  };
+}
+
+function buildCombinedFunnelData(monthKey) {
+  const wj = monthlyKpisForMonth('workjapan', monthKey);
+  const ny = monthlyKpisForMonth('nyuuly', monthKey);
+  const months = getCombinedAvailableMonths();
+  const idx = months.indexOf(monthKey);
+  const prevKey = idx > 0 ? months[idx - 1] : null;
+  const wjPrev = prevKey ? monthlyKpisForMonth('workjapan', prevKey) : null;
+  const nyPrev = prevKey ? monthlyKpisForMonth('nyuuly', prevKey) : null;
+
+  const wjChannels = getUsersByChannelForMonth('workjapan', monthKey);
+  const nyChannels = getUsersByChannelForMonth('nyuuly', monthKey);
+  const channelSet = new Set([...Object.keys(wjChannels), ...Object.keys(nyChannels)]);
+  const totalUsersVal = (wj.totalUsers || 0) + (ny.totalUsers || 0);
+  const channels = [...channelSet].map((ch) => {
+    const w = wjChannels[ch] || 0;
+    const n = nyChannels[ch] || 0;
+    const t = w + n;
+    return {
+      channel: ch,
+      workjapan: w,
+      nyuuly: n,
+      total: t,
+      pct: totalUsersVal > 0 ? Math.round((t / totalUsersVal) * 1000) / 10 : 0,
+    };
+  }).sort((a, b) => b.total - a.total);
+
+  const awareness = {
+    total: companySplit(wj.awarenessTotalViews, ny.awarenessTotalViews, wjPrev?.awarenessTotalViews, nyPrev?.awarenessTotalViews),
+    gscImpressions: companySplit(wj.gscImpressions, ny.gscImpressions, wjPrev?.gscImpressions, nyPrev?.gscImpressions),
+    socialChannelViews: companySplit(wj.socialChannelViews, ny.socialChannelViews, wjPrev?.socialChannelViews, nyPrev?.socialChannelViews),
+    socialPostViews: companySplit(wj.socialViews, ny.socialViews, wjPrev?.socialViews, nyPrev?.socialViews),
+    brandMessages: {
+      workjapan: getBrandMessageForMonth('workjapan', monthKey).message,
+      nyuuly: getBrandMessageForMonth('nyuuly', monthKey).message,
+    },
+  };
+
+  const consideration = {
+    totalUsers: companySplit(wj.totalUsers, ny.totalUsers, wjPrev?.totalUsers, nyPrev?.totalUsers),
+    channels,
+  };
+
+  const commit = {
+    totalSignUps: companySplit(wj.registrations, ny.nyuulySubscribe, wjPrev?.registrations, nyPrev?.nyuulySubscribe),
+    totalAppDownloads: companySplit(wj.appDownloads, ny.appDownloads, wjPrev?.appDownloads, nyPrev?.appDownloads),
+    compassStarted: companySplit(0, ny.compassStarted, 0, nyPrev?.compassStarted),
+  };
+
+  const proceed = buildStageMetricItems([
+    { key: 'totalApplications', label: 'Applications', company: 'WORK JAPAN', workjapan: wj.totalApplications || 0, nyuuly: 0 },
+    { key: 'addToCart', label: 'Add to cart', company: 'Nyuuly', workjapan: 0, nyuuly: ny.addToCart || 0 },
+    { key: 'compassFilled', label: 'Compass filled', company: 'Nyuuly', workjapan: 0, nyuuly: ny.compassFilled || 0 },
+    { key: 'welcomePackageStarted', label: 'Welcome package started', company: 'Nyuuly', workjapan: 0, nyuuly: ny.welcomePackageStarted || 0 },
+  ], (item) => {
+    if (!prevKey) return null;
+    if (item.key === 'totalApplications') return wjPrev?.totalApplications || 0;
+    if (item.key === 'addToCart') return nyPrev?.addToCart || 0;
+    if (item.key === 'compassFilled') return nyPrev?.compassFilled || 0;
+    return nyPrev?.welcomePackageStarted || 0;
+  });
+
+  const result = buildStageMetricItems([
+    { key: 'selected', label: 'Selected', company: 'WORK JAPAN', workjapan: wj.selected || 0, nyuuly: 0 },
+    { key: 'interviewsFixed', label: 'Interviews fixed', company: 'WORK JAPAN', workjapan: wj.interviewsFixed || 0, nyuuly: 0 },
+    { key: 'screeningPasses', label: 'Screening passes', company: 'WORK JAPAN', workjapan: wj.screeningPasses || 0, nyuuly: 0 },
+    { key: 'remainingEsp', label: 'Remaining ESP', company: 'WORK JAPAN', workjapan: wj.remainingEsp || 0, nyuuly: 0 },
+    { key: 'mobileSimPurchased', label: 'Mobile Sim purchased', company: 'Nyuuly', workjapan: 0, nyuuly: ny.mobileSimPurchased || 0 },
+    { key: 'welcomePackagePurchased', label: 'Welcome package purchased', company: 'Nyuuly', workjapan: 0, nyuuly: ny.welcomePackagePurchased || 0 },
+    { key: 'formFilled', label: 'Form filled', company: 'Nyuuly', workjapan: 0, nyuuly: ny.formFilled || 0 },
+    { key: 'askMeRequest', label: 'Ask me request', company: 'Nyuuly', workjapan: 0, nyuuly: ny.askMeRequest || 0 },
+  ], (item) => {
+    if (!prevKey) return null;
+    if (item.company === 'WORK JAPAN') return wjPrev?.[item.key] || 0;
+    return nyPrev?.[item.key] || 0;
+  });
+
+  return {
+    month: monthKey,
+    monthLabel: monthKeyLabel(monthKey),
+    prevMonth: prevKey,
+    prevMonthLabel: prevKey ? monthKeyLabel(prevKey) : null,
+    pipeline: {
+      awareness: awareness.total,
+      consideration: consideration.totalUsers,
+      commit: commit.totalSignUps,
+      proceed: proceed.total,
+      result: result.total,
+    },
+    stages: { awareness, consideration, commit, proceed, result },
+    months: months.map((key) => ({ key, label: monthKeyLabel(key) })),
+  };
+}
+
 // --- Routes ---
 
 app.get('/upload', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'upload.html'));
+});
+
+app.get('/combined', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'combined.html'));
 });
 
 app.post('/api/upload', uploadLimiter, upload.single('file'), (req, res) => {
@@ -1615,6 +1818,29 @@ app.post('/api/manual/social-channels', uploadLimiter, (req, res) => {
 
     logUpload(`Manual entry — ${parsedMonth.month_label}`, company, 'social-channels', saved, 0);
     res.json({ success: true, rowsAdded: saved, month: parsedMonth.month_label, company });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/manual/brand-message', uploadLimiter, (req, res) => {
+  try {
+    const { company, month, message } = req.body;
+    if (!company || !['nyuuly', 'workjapan'].includes(company)) {
+      return res.status(400).json({ error: 'Invalid company' });
+    }
+    if (!month) return res.status(400).json({ error: 'Month is required' });
+    if (message == null || String(message).trim() === '') {
+      return res.status(400).json({ error: 'Brand message is required' });
+    }
+
+    const parsedMonth = parseMonthLabel(month);
+    if (!parsedMonth) return res.status(400).json({ error: 'Invalid month format' });
+
+    saveBrandMessageRow(company, parsedMonth, message);
+
+    logUpload(`Manual entry — ${parsedMonth.month_label}`, company, 'brand-message', 1, 0);
+    res.json({ success: true, rowsAdded: 1, month: parsedMonth.month_label, company });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2132,6 +2358,23 @@ app.get('/api/app-downloads', (req, res) => {
   });
 });
 
+app.get('/api/brand-message', (req, res) => {
+  const { company, start, end } = req.query;
+  if (!company || !['nyuuly', 'workjapan'].includes(company)) {
+    return res.status(400).json({ error: 'Invalid company' });
+  }
+  const monthKey = start?.slice(0, 7);
+  if (!monthKey) {
+    return res.json({ message: '', latest: null, filter: { company, start, end } });
+  }
+  const data = getBrandMessageForMonth(company, monthKey);
+  res.json({
+    message: data.message,
+    latest: data.month_label ? { month_label: data.month_label, message: data.message } : null,
+    filter: { company, start, end, month: monthKey },
+  });
+});
+
 app.get('/api/social-channels', (req, res) => {
   const { company, start, end } = req.query;
   const monthKey = start?.slice(0, 7);
@@ -2558,6 +2801,27 @@ app.get('/api/monthly', (req, res) => {
   });
 });
 
+app.get('/api/combined-funnel', (req, res) => {
+  try {
+    const months = getCombinedAvailableMonths();
+    const month = req.query.month || (months.length ? months[months.length - 1] : null);
+    if (!month) {
+      return res.json({ month: null, months: [], stages: null, pipeline: null });
+    }
+    res.json(buildCombinedFunnelData(month));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/combined-funnel/months', (req, res) => {
+  const months = getCombinedAvailableMonths();
+  res.json({
+    months: months.map((key) => ({ key, label: monthKeyLabel(key) })),
+    latest: months.length ? months[months.length - 1] : null,
+  });
+});
+
 app.get('/api/summary', (req, res) => {
   const { company, start, end } = req.query;
   const socialQ = buildSocialQuery(company, start, end);
@@ -2969,7 +3233,7 @@ app.delete('/api/data', (req, res) => {
     return res.status(400).json({ error: 'Must pass confirm=yes' });
   }
 
-  const allowedTables = ['social_posts', 'funnel_data', 'traffic_acquisition', 'user_acquisition', 'pages_screens', 'search_console_stats', 'social_channel_views', 'app_downloads', 'nyuuly_commit_stats', 'nyuuly_proceed_stats', 'nyuuly_result_stats', 'platform_stats', 'applicant_stats'];
+  const allowedTables = ['social_posts', 'funnel_data', 'traffic_acquisition', 'user_acquisition', 'pages_screens', 'search_console_stats', 'social_channel_views', 'app_downloads', 'nyuuly_commit_stats', 'nyuuly_proceed_stats', 'nyuuly_result_stats', 'brand_messages', 'platform_stats', 'applicant_stats'];
   if (!allowedTables.includes(table)) {
     return res.status(400).json({ error: 'Invalid table name' });
   }
