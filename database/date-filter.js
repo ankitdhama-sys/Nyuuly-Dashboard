@@ -201,6 +201,43 @@ function prorateUsersRows(rows, filterStart, filterEnd) {
     .sort((a, b) => b.total_users - a.total_users);
 }
 
+const GA4_ORGANIC_SEARCH_CHANNELS = new Set(['Organic Search', 'AI Overview', 'AI Assistant']);
+const GA4_ORGANIC_SOCIAL_CHANNEL = 'Organic Social';
+
+function websiteUsersSourceBreakdown(rows) {
+  const totalUsers = rows.reduce((s, r) => s + (r.total_users || 0), 0);
+  let organicSearchUsers = 0;
+  let organicSocialUsers = 0;
+  for (const row of rows) {
+    const ch = row.channel_group || '';
+    const users = row.total_users || 0;
+    if (GA4_ORGANIC_SEARCH_CHANNELS.has(ch)) {
+      organicSearchUsers += users;
+    } else if (ch === GA4_ORGANIC_SOCIAL_CHANNEL) {
+      organicSocialUsers += users;
+    }
+  }
+  const otherUsers = Math.max(0, totalUsers - organicSearchUsers - organicSocialUsers);
+  const pctOfTotal = (n) => (totalUsers > 0 ? Math.round((n / totalUsers) * 1000) / 10 : null);
+  return {
+    totalUsers,
+    organicSearchUsers,
+    organicSocialUsers,
+    otherUsers,
+    organicSearchPct: pctOfTotal(organicSearchUsers),
+    organicSocialPct: pctOfTotal(organicSocialUsers),
+    otherPct: pctOfTotal(otherUsers),
+  };
+}
+
+function websiteUsersSourceBreakdownFromChannelMap(channelMap) {
+  const rows = Object.entries(channelMap || {}).map(([channel_group, total_users]) => ({
+    channel_group,
+    total_users,
+  }));
+  return websiteUsersSourceBreakdown(rows);
+}
+
 function usersKpisFromRows(rows) {
   const totalUsers = rows.reduce((s, r) => s + (r.total_users || 0), 0);
   const newUsers = rows.reduce((s, r) => s + (r.new_users || 0), 0);
@@ -224,5 +261,7 @@ module.exports = {
   prorateFunnelRows,
   trafficKpisFromRows,
   usersKpisFromRows,
+  websiteUsersSourceBreakdown,
+  websiteUsersSourceBreakdownFromChannelMap,
   dayCount,
 };

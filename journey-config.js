@@ -593,14 +593,14 @@ function buildConsiderationInsights({
       page: p.dimension_value,
       clicks: p.clicks,
       impressions: p.impressions,
-      ctr: p.ctr,
+      ctr: p.impressions > 0 ? p.clicks / p.impressions : (p.ctr || 0),
       position: p.position,
     })),
     topGscQueries: (searchConsole?.topQueries || []).slice(0, 8).map((q) => ({
       query: q.dimension_value,
       clicks: q.clicks,
       impressions: q.impressions,
-      ctr: q.ctr,
+      ctr: q.impressions > 0 ? q.clicks / q.impressions : (q.ctr || 0),
       position: q.position,
     })),
   };

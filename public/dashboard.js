@@ -37,8 +37,21 @@ function formatNum(n) {
 
 function formatPct(n) {
   if (n == null) return '0%';
+  // Values 0–1 are fractions (e.g. CTR 0.0011); larger values are already percentage points.
   const val = n <= 1 ? n * 100 : n;
   return val.toFixed(1) + '%';
+}
+
+/** Format a value already expressed as percentage points (0–100). */
+function formatPctPoints(n) {
+  if (n == null) return '0%';
+  return `${Number(n).toFixed(1)}%`;
+}
+
+/** Returns a fraction (0–1) for use with formatPct. */
+function conversionFromPrevious(current, previous) {
+  if (previous == null || previous <= 0) return null;
+  return current / previous;
 }
 
 /** Returns a month-over-month delta badge for the given metric key. */
@@ -76,6 +89,111 @@ function monthLabel(key) {
   const [y, m] = key.split('-').map(Number);
   const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   return `${names[m - 1] || m} ${y}`;
+}
+
+function funnelStepConversionPlain(pct, description) {
+  if (pct == null) return '';
+  return `<div class="funnel-step-conversion">
+    <span class="funnel-step-conversion-pct">${formatPct(pct)}</span>
+    <span class="funnel-step-conversion-desc">${description}</span>
+  </div>`;
+}
+
+function funnelPrevStepHtml(pct) {
+  if (pct == null) return '';
+  return `<div class="commit-funnel-arrow"><span>${formatPct(pct)} continued from the step above</span></div>`;
+}
+
+function funnelConsiderationSourcesHtml(breakdown) {
+  if (!breakdown?.totalUsers) return '';
+  const lines = [];
+  if (breakdown.organicSearchUsers > 0 || breakdown.organicSearchPct != null) {
+    lines.push(funnelUserSourceLine(
+      breakdown.organicSearchPct,
+      breakdown.organicSearchUsers,
+      'Google search & AI Overview (GA4 Organic Search + AI channels)',
+    ));
+  }
+  if (breakdown.organicSocialUsers > 0 || breakdown.organicSocialPct != null) {
+    lines.push(funnelUserSourceLine(
+      breakdown.organicSocialPct,
+      breakdown.organicSocialUsers,
+      'Social media (GA4 Organic Social)',
+    ));
+  }
+  if (breakdown.otherUsers > 0 || breakdown.otherPct != null) {
+    lines.push(funnelUserSourceLine(
+      breakdown.otherPct,
+      breakdown.otherUsers,
+      'Other channels (direct, email, paid, referral, etc.)',
+    ));
+  }
+  if (!lines.length) return '';
+  return `<div class="funnel-step-conversions">
+    <div class="funnel-step-conversions-intro">Where website users came from (GA4):</div>
+    ${lines.join('')}
+  </div>`;
+}
+
+function funnelUserSourceLine(pct, users, description) {
+  if (pct == null && !users) return '';
+  return `<div class="funnel-step-conversion">
+    <span class="funnel-step-conversion-pct">${formatPctPoints(pct)} · ${formatNum(users || 0)} users</span>
+    <span class="funnel-step-conversion-desc">${description}</span>
+  </div>`;
+}
+
+function renderAwarenessMetricsHtml(gsc, social, deltas) {
+  return `
+    <div class="pipeline-awareness-metrics">
+      <div class="pipeline-awareness-metric">
+        <div class="pipeline-awareness-value">${formatNum(gsc)}</div>
+        <div class="pipeline-awareness-label">Google search impressions</div>
+        <div class="pipeline-awareness-hint">Times we appeared in search results</div>
+        ${deltaBadge(deltas, 'gscImpressions')}
+      </div>
+      <div class="pipeline-awareness-metric">
+        <div class="pipeline-awareness-value">${formatNum(social)}</div>
+        <div class="pipeline-awareness-label">Social media views</div>
+        <div class="pipeline-awareness-hint">Views on Facebook, Instagram, etc.</div>
+        ${deltaBadge(deltas, 'socialChannelViews')}
+      </div>
+    </div>
+  `;
+}
+
+function gscCtrValue(row) {
+  if (!row) return 0;
+  if (row.impressions > 0) return row.clicks / row.impressions;
+  return row.ctr || 0;
+}
+
+function renderPipelineStageCard(stage, prevStage) {
+  const convLine = stage.sourceBreakdown
+    ? funnelConsiderationSourcesHtml(stage.sourceBreakdown)
+    : stage.awarenessMetrics
+      ? ''
+      : funnelStepConversionPlain(
+        prevStage ? conversionFromPrevious(stage.raw, prevStage.raw) : null,
+        stage.conversionHint || 'moved to this step from the previous one',
+      );
+
+  const valueBlock = stage.awarenessMetrics
+    ? renderAwarenessMetricsHtml(stage.awarenessMetrics.gsc, stage.awarenessMetrics.social, stage.deltas)
+    : `
+      <div class="pipeline-value">${formatNum(stage.raw)}</div>
+      ${stage.stepDelta ? stepMoMBadge(stage.stepDelta) : deltaBadge(stage.deltas, stage.deltaKey)}
+    `;
+
+  return `
+    <a href="#${stage.anchor}" class="pipeline-stage${stage.awarenessMetrics ? ' pipeline-stage-awareness' : ''}">
+      <div class="pipeline-num">${stage.num}</div>
+      <div class="pipeline-label">${stage.label}</div>
+      ${valueBlock}
+      ${convLine}
+      ${stage.detail ? `<div class="pipeline-detail">${stage.detail}</div>` : ''}
+    </a>
+  `;
 }
 
 async function loadAvailableMonths(forceDefault = false) {
@@ -239,7 +357,6 @@ function renderFunnelPipeline(journeys, platform, applicants, social, users, del
   if (!el) return;
 
   const awareness = journeyById(journeys, 'awareness');
-  const register = journeyById(journeys, 'register-apply');
   const isWj = state.company === 'workjapan';
 
   const stages = isWj ? [
@@ -247,94 +364,106 @@ function renderFunnelPipeline(journeys, platform, applicants, social, users, del
       anchor: 'stage-awareness',
       num: 1,
       label: 'Awareness',
-      value: formatNum(awareness?.kpis?.awarenessTotalViews),
-      detail: `${formatNum(awareness?.kpis?.gscImpressions)} GSC impressions · ${formatNum(awareness?.kpis?.socialChannelViews)} social views`,
-      deltaKey: 'awarenessTotalViews',
+      awarenessMetrics: {
+        gsc: awareness?.kpis?.gscImpressions || 0,
+        social: awareness?.kpis?.socialChannelViews || 0,
+      },
+      deltas,
     },
     {
       anchor: 'stage-consideration',
       num: 2,
       label: 'Consideration',
-      value: formatNum(users?.kpis?.totalUsers),
-      detail: null,
+      raw: users?.kpis?.totalUsers || 0,
       deltaKey: 'totalUsers',
+      deltas,
+      sourceBreakdown: users?.sourceBreakdown,
     },
     {
       anchor: 'stage-commit',
       num: 3,
       label: 'Commit (CV)',
-      value: formatNum(platform?.kpis?.totalRegistrations || register?.kpis?.activeUsers),
-      detail: `${formatPct(register?.kpis?.conversionRate)} conversion to register`,
+      raw: platform?.kpis?.totalRegistrations || 0,
       deltaKey: 'registrations',
+      deltas,
+      conversionHint: 'of website visitors created an account',
     },
     {
       anchor: 'stage-proceed',
       num: 4,
       label: 'Proceed',
-      value: formatNum(applicants?.latest?.total_applications ?? applicants?.kpis?.totalApplications),
-      detail: `${formatNum(applicants?.latest?.unique_applicants)} unique applicants`,
+      raw: applicants?.latest?.total_applications ?? applicants?.kpis?.totalApplications ?? 0,
       deltaKey: 'totalApplications',
+      deltas,
+      conversionHint: 'of registered users submitted a job application',
+      detail: `${formatNum(applicants?.latest?.unique_applicants)} unique applicants`,
     },
     {
       anchor: 'stage-result',
       num: 5,
       label: 'Result',
-      value: formatNum(applicants?.latest?.selected ?? applicants?.kpis?.selected),
-      detail: `${formatNum(applicants?.latest?.interviews_fixed)} interviews`,
+      raw: applicants?.latest?.selected ?? applicants?.kpis?.selected ?? 0,
       deltaKey: 'selected',
+      deltas,
+      conversionHint: 'of total applications were selected (job offer)',
+      detail: `${formatNum(applicants?.latest?.interviews_fixed)} interviews`,
     },
   ] : [
     {
       anchor: 'stage-awareness',
       num: 1,
       label: 'Awareness',
-      value: formatNum(awareness?.kpis?.awarenessTotalViews),
-      detail: `${formatNum(awareness?.kpis?.gscImpressions)} GSC impressions · ${formatNum(awareness?.kpis?.socialChannelViews)} social views`,
-      deltaKey: 'awarenessTotalViews',
+      awarenessMetrics: {
+        gsc: awareness?.kpis?.gscImpressions || 0,
+        social: awareness?.kpis?.socialChannelViews || 0,
+      },
+      deltas,
     },
     {
       anchor: 'stage-consideration',
       num: 2,
       label: 'Consideration',
-      value: formatNum(users?.kpis?.totalUsers),
-      detail: `${formatNum(deltas?.appDownloads?.value)} app downloads`,
+      raw: users?.kpis?.totalUsers || 0,
       deltaKey: 'totalUsers',
+      deltas,
+      sourceBreakdown: users?.sourceBreakdown,
+      detail: `${formatNum(deltas?.appDownloads?.value)} app downloads`,
     },
     {
       anchor: 'stage-commit-nyuuly',
       num: 3,
       label: 'Commit',
-      value: formatNum(nyuulyCommit?.nyuulySubscribe),
-      detail: `${formatNum(nyuulyCommit?.compassStarted)} Compass started`,
+      raw: nyuulyCommit?.nyuulySubscribe || 0,
       deltaKey: 'nyuulySubscribe',
+      deltas,
+      conversionHint: 'of website visitors subscribed to Nyuuly',
+      detail: `${formatNum(nyuulyCommit?.compassStarted)} Compass started`,
     },
     {
       anchor: 'stage-proceed-nyuuly',
       num: 4,
       label: 'Proceed (Uses)',
-      value: formatNum(mobileSimFlow?.steps?.find((s) => s.key === 'apply')?.activeUsers),
-      detail: `${formatNum(mobileSimFlow?.steps?.find((s) => s.key === 'confirm')?.activeUsers)} reached Confirm`,
+      raw: mobileSimFlow?.steps?.find((s) => s.key === 'apply')?.activeUsers || 0,
       deltaKey: 'mobileSimApply',
+      deltas,
       stepDelta: mobileSimFlow?.steps?.find((s) => s.key === 'apply'),
+      conversionHint: 'of subscribers started the Mobile Sim application',
+      detail: `${formatNum(mobileSimFlow?.steps?.find((s) => s.key === 'confirm')?.activeUsers)} reached Confirm`,
     },
     {
       anchor: 'stage-result-nyuuly',
       num: 5,
       label: 'Result',
-      value: formatNum(nyuulyResult?.mobileSimPurchased),
-      detail: `${formatNum(nyuulyResult?.formFilled)} forms filled`,
+      raw: nyuulyResult?.mobileSimPurchased || 0,
       deltaKey: 'mobileSimPurchased',
+      deltas,
+      conversionHint: 'of Mobile Sim applicants completed a purchase',
+      detail: `${formatNum(nyuulyResult?.formFilled)} forms filled`,
     },
   ];
 
   el.innerHTML = stages.map((s, i) => `
-    <a href="#${s.anchor}" class="pipeline-stage">
-      <div class="pipeline-num">${s.num}</div>
-      <div class="pipeline-label">${s.label}</div>
-      <div class="pipeline-value">${s.value}</div>
-      ${s.stepDelta ? stepMoMBadge(s.stepDelta) : deltaBadge(deltas, s.deltaKey)}
-      ${s.detail ? `<div class="pipeline-detail">${s.detail}</div>` : ''}
-    </a>
+    ${renderPipelineStageCard(s, i > 0 ? stages[i - 1] : null)}
     ${i < stages.length - 1 ? '<div class="pipeline-arrow">→</div>' : ''}
   `).join('');
 }
@@ -513,7 +642,7 @@ function renderMobileSimFlowSection(flowData, historyData, monthly) {
       <div class="mobile-sim-step">
         <div class="mobile-sim-step-label">${step.label}</div>
         <div class="mobile-sim-step-value">${formatNum(step.activeUsers)}</div>
-        ${step.fromPrevStepPct != null ? `<div class="mobile-sim-step-rate">${formatPct(step.fromPrevStepPct)} from prev</div>` : ''}
+        ${step.fromPrevStepPct != null ? `<div class="funnel-step-conversion"><span class="funnel-step-conversion-pct">${formatPctPoints(step.fromPrevStepPct)}</span><span class="funnel-step-conversion-desc">continued from the previous Mobile Sim step</span></div>` : ''}
       </div>
       ${i < steps.length - 1 ? '<div class="mobile-sim-arrow">→</div>' : ''}
     `).join('');
@@ -551,7 +680,7 @@ function renderMobileSimFlowSection(flowData, historyData, monthly) {
                 <td><code>${step.path}</code></td>
                 <td>${formatNum(step.activeUsers)}</td>
                 <td>${stepMoMBadge(step)}</td>
-                <td>${step.fromPrevStepPct != null ? formatPct(step.fromPrevStepPct) : '—'}</td>
+                <td>${step.fromPrevStepPct != null ? formatPctPoints(step.fromPrevStepPct) : '—'}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -670,7 +799,7 @@ function renderCompassUsesFlowSection(flowData, historyData, monthly) {
             <div class="path-node-label">${cat.label}</div>
             <div class="path-node-value">${formatNum(cat.activeUsers || 0)}</div>
             <div class="path-node-path"><code>${cat.path.replace('/compass', '') || '/'}</code></div>
-            ${cat.fromCompassPct != null ? `<div class="path-node-rate">${formatPct(cat.fromCompassPct)} of Compass</div>` : ''}
+            ${cat.fromCompassPct != null ? `<div class="funnel-step-conversion"><span class="funnel-step-conversion-pct">${formatPctPoints(cat.fromCompassPct)}</span><span class="funnel-step-conversion-desc">of Compass visitors opened this category</span></div>` : ''}
           </div>
         `).join('')}
       </div>
@@ -765,7 +894,7 @@ function renderCompassUsesFlowSection(flowData, historyData, monthly) {
                 <td><code>${row.path}</code></td>
                 <td>${formatNum(row.users)}</td>
                 <td>${row.deltaPct != null ? formatDeltaPct(row.deltaPct) : '<span class="kpi-delta kpi-delta-flat">—</span>'}</td>
-                <td>${row.fromPrev != null ? formatPct(row.fromPrev) : '—'}</td>
+                <td>${row.fromPrev != null ? formatPctPoints(row.fromPrev) : '—'}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -1087,7 +1216,7 @@ function renderCommitRegistrationBlockShell(registrations) {
       </div>
 
       <h4 class="subsection-title consideration-reg-platform-title">Conversion funnel — this month</h4>
-      <p class="subsection-hint">Top impressions → website users → registrations → applications.</p>
+      <p class="subsection-hint">GSC search impressions → website users → registrations → applications. Social channel views are shown separately (not summed with impressions).</p>
       <div id="commitVerticalFunnel" class="commit-funnel-vertical"></div>
     </div>
   `;
@@ -1224,25 +1353,28 @@ function renderCommitVerticalFunnel(funnelMetrics) {
   const el = document.getElementById('commitVerticalFunnel');
   if (!el || !funnelMetrics) return;
 
+  const gscImpressions = funnelMetrics.gscImpressions || 0;
+  const socialViews = funnelMetrics.socialViews || 0;
   const steps = [
-    { label: 'Total impressions', value: funnelMetrics.impressions || 0, color: '#4F8EF7' },
+    { label: 'GSC search impressions', value: gscImpressions, color: '#4F8EF7' },
     { label: 'Website users', value: funnelMetrics.users || 0, color: '#FF6B35' },
     { label: 'Registrations', value: funnelMetrics.registrations || 0, color: '#34d399' },
     { label: 'Applications', value: funnelMetrics.applications || 0, color: '#facc15' },
   ];
-  if (!steps.some((s) => s.value > 0)) {
+  if (!steps.some((s) => s.value > 0) && !socialViews) {
     el.innerHTML = '<p class="empty-state">Upload GSC, User Acquisition, platform registrations, and applicant stats to see the funnel.</p>';
     return;
   }
 
   const max = Math.max(...steps.map((s) => s.value), 1);
+  const socialNote = socialViews > 0
+    ? `<div class="commit-funnel-note">Social channel views (separate metric): <strong>${formatNum(socialViews)}</strong> — not added to search impressions</div>`
+    : '';
   el.innerHTML = steps.map((step, i) => {
     const widthPct = Math.max(12, Math.round((step.value / max) * 100));
     const prev = i > 0 ? steps[i - 1].value : null;
-    const conv = prev > 0 ? formatPct((step.value / prev) * 100) : null;
-    const connector = i > 0
-      ? `<div class="commit-funnel-arrow"><span>↓ ${conv} from previous step</span></div>`
-      : '';
+    const conv = prev > 0 ? conversionFromPrevious(step.value, prev) : null;
+    const connector = i > 0 ? funnelPrevStepHtml(conv) : '';
     return `
       ${connector}
       <div class="commit-funnel-step" style="--funnel-width: ${widthPct}%; --funnel-color: ${step.color}">
@@ -1250,7 +1382,7 @@ function renderCommitVerticalFunnel(funnelMetrics) {
         <span class="commit-funnel-step-value">${formatNum(step.value)}</span>
       </div>
     `;
-  }).join('');
+  }).join('') + socialNote;
 }
 
 function renderCommitRegistration(regContext, registrations) {
@@ -1291,7 +1423,7 @@ function renderConsiderationInsights(consideration) {
                 <td class="gsc-page-cell">${p.page}</td>
                 <td>${formatNum(p.clicks)}</td>
                 <td>${formatNum(p.impressions)}</td>
-                <td>${formatPct(p.ctr)}</td>
+                <td>${formatPct(gscCtrValue(p))}</td>
                 <td>${p.position?.toFixed?.(1) ?? p.position}</td>
               </tr>
             `).join('') || '<tr><td colspan="5" class="empty-state">Upload Search Console zip for this month</td></tr>'}
@@ -1731,7 +1863,7 @@ function renderGscQueriesTable(gsc) {
         <td>${q.dimension_value}</td>
         <td>${formatNum(q.clicks)}</td>
         <td>${formatNum(q.impressions)}</td>
-        <td>${formatPct(q.ctr)}</td>
+        <td>${formatPct(gscCtrValue(q))}</td>
         <td>${q.position?.toFixed?.(1) ?? q.position}</td>
       </tr>
     `).join('')
@@ -1775,24 +1907,46 @@ function renderSocialSectionContribution(journeys, deltas) {
   if (!el) return;
   const awareness = journeyById(journeys, 'awareness');
   const socialViews = awareness?.kpis?.socialChannelViews || 0;
-  const total = awareness?.kpis?.awarenessTotalViews || 0;
-  if (!total || !socialViews) {
+  const gscImpressions = awareness?.kpis?.gscImpressions || 0;
+  if (!socialViews && !gscImpressions) {
     el.className = 'section-contribution empty';
     el.textContent = 'No social data this month';
     return;
   }
-  const pct = Math.round((socialViews / total) * 1000) / 10;
   el.className = 'section-contribution';
-  el.innerHTML = `${formatNum(socialViews)} views · ${pct}% of Awareness ${deltaBadge(deltas, 'socialChannelViews')}`;
+  el.innerHTML = `${formatNum(socialViews)} social channel views${deltaBadge(deltas, 'socialChannelViews')}`;
 }
 
-function renderSocialKpis(socialChannels, socialCsv, deltas) {
+function valueDeltaBadge(current, prev) {
+  if (prev == null || prev === 0) {
+    return '<span class="kpi-delta kpi-delta-flat">— vs last month</span>';
+  }
+  const d = Math.round(((current - prev) / prev) * 1000) / 10;
+  if (d > 0) return `<span class="kpi-delta kpi-delta-up">▲ ${Math.abs(d).toFixed(1)}% vs last month</span>`;
+  if (d < 0) return `<span class="kpi-delta kpi-delta-down">▼ ${Math.abs(d).toFixed(1)}% vs last month</span>`;
+  return '<span class="kpi-delta kpi-delta-flat">0.0% vs last month</span>';
+}
+
+function socialChannelPrevViews(history, monthKey) {
+  const months = history || [];
+  const idx = months.findIndex((h) => h.month === monthKey);
+  const prev = idx > 0 ? months[idx - 1] : null;
+  if (!prev) return { totalViews: null, channels: {} };
+  const channels = Object.fromEntries(
+    (prev.channels || []).map((c) => [c.channel, c.views || 0]),
+  );
+  return { totalViews: prev.totalViews ?? null, channels };
+}
+
+function renderSocialKpis(socialChannels, socialCsv, deltas, socialChannelHistory) {
   const el = document.getElementById('socialKpis');
   if (!el) return;
 
   const channelMap = Object.fromEntries((socialChannels?.channels || []).map((c) => [c.channel, c.views]));
   const manualTotal = socialChannels?.totalViews || 0;
   const csvPosts = socialCsv?.posts?.length || 0;
+  const prev = socialChannelPrevViews(socialChannelHistory?.history, state.month);
+  const platforms = ['Facebook', 'Instagram', 'TikTok', 'YouTube'];
 
   if (!manualTotal && !csvPosts) {
     el.innerHTML = '<div class="empty-state">No social data for this month — enter channel views on the <a href="/upload">upload page</a> or upload a Social CSV.</div>';
@@ -1800,12 +1954,25 @@ function renderSocialKpis(socialChannels, socialCsv, deltas) {
   }
 
   el.innerHTML = `
-    <div class="kpi-card"><div class="label">Total Social Views</div><div class="value">${formatNum(manualTotal)}</div>${deltaBadge(deltas, 'socialChannelViews')}</div>
-    <div class="kpi-card"><div class="label">Facebook</div><div class="value">${formatNum(channelMap.Facebook || 0)}</div></div>
-    <div class="kpi-card"><div class="label">Instagram</div><div class="value">${formatNum(channelMap.Instagram || 0)}</div></div>
-    <div class="kpi-card"><div class="label">TikTok</div><div class="value">${formatNum(channelMap.TikTok || 0)}</div></div>
-    <div class="kpi-card"><div class="label">YouTube</div><div class="value">${formatNum(channelMap.YouTube || 0)}</div></div>
-    ${csvPosts ? `<div class="kpi-card"><div class="label">CSV Posts</div><div class="value">${formatNum(csvPosts)}</div></div>` : ''}
+    <div class="kpi-card">
+      <div class="label">Total Social Views</div>
+      <div class="value">${formatNum(manualTotal)}</div>
+      ${valueDeltaBadge(manualTotal, prev.totalViews)}
+    </div>
+    ${platforms.map((platform) => `
+      <div class="kpi-card">
+        <div class="label">${platform}</div>
+        <div class="value">${formatNum(channelMap[platform] || 0)}</div>
+        ${valueDeltaBadge(channelMap[platform] || 0, prev.channels[platform])}
+      </div>
+    `).join('')}
+    ${csvPosts ? `
+      <div class="kpi-card">
+        <div class="label">CSV Posts</div>
+        <div class="value">${formatNum(csvPosts)}</div>
+        ${deltaBadgeMoM(deltas, 'postCount')}
+      </div>
+    ` : ''}
   `;
 }
 
@@ -2364,7 +2531,8 @@ async function loadDashboard() {
       renderFunnelPipeline(journeys, platform, applicants, social, users, deltas);
       const regContext = {
         funnelMetrics: {
-          impressions: (gsc?.kpis?.impressions || 0) + (socialChannels?.totalViews || 0),
+          gscImpressions: gsc?.kpis?.impressions || 0,
+          socialViews: socialChannels?.totalViews || 0,
           users: users?.kpis?.totalUsers || 0,
           registrations: journeys.consideration?.registrations?.totalRegistrations
             || platform?.kpis?.totalRegistrations
@@ -2415,7 +2583,7 @@ async function loadDashboard() {
     renderDataStatus(journeys.dataCompleteness);
 
     renderSocialSectionContribution(journeys, deltas);
-    renderSocialKpis(socialChannels, social, deltas);
+    renderSocialKpis(socialChannels, social, deltas, socialChannelHistory);
     renderChartSocialPlatforms(socialChannels?.channels || []);
     renderChartSocialPlatformsByMonth(socialChannelHistory?.history || []);
     renderTopContentTable(social.topPosts || []);

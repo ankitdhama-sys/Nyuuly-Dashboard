@@ -59,25 +59,160 @@ function pipelineMetric(metric) {
     : metric;
 }
 
+function conversionFromPrevious(current, previous) {
+  if (previous == null || previous <= 0) return null;
+  return current / previous;
+}
+
+function formatPctPoints(n) {
+  if (n == null) return '0%';
+  return `${Number(n).toFixed(1)}%`;
+}
+
+function funnelStepConversionPlain(pct, description) {
+  if (pct == null) return '';
+  return `<div class="funnel-step-conversion">
+    <span class="funnel-step-conversion-pct">${formatPct(pct)}</span>
+    <span class="funnel-step-conversion-desc">${description}</span>
+  </div>`;
+}
+
+function funnelConsiderationSourcesHtml(breakdown) {
+  if (!breakdown?.totalUsers) return '';
+  const lines = [];
+  if (breakdown.organicSearchUsers > 0 || breakdown.organicSearchPct != null) {
+    lines.push(funnelUserSourceLine(
+      breakdown.organicSearchPct,
+      breakdown.organicSearchUsers,
+      'Google search & AI Overview (GA4 Organic Search + AI channels)',
+    ));
+  }
+  if (breakdown.organicSocialUsers > 0 || breakdown.organicSocialPct != null) {
+    lines.push(funnelUserSourceLine(
+      breakdown.organicSocialPct,
+      breakdown.organicSocialUsers,
+      'Social media (GA4 Organic Social)',
+    ));
+  }
+  if (breakdown.otherUsers > 0 || breakdown.otherPct != null) {
+    lines.push(funnelUserSourceLine(
+      breakdown.otherPct,
+      breakdown.otherUsers,
+      'Other channels (direct, email, paid, referral, etc.)',
+    ));
+  }
+  if (!lines.length) return '';
+  return `<div class="funnel-step-conversions">
+    <div class="funnel-step-conversions-intro">Where website users came from (GA4):</div>
+    ${lines.join('')}
+  </div>`;
+}
+
+function funnelUserSourceLine(pct, users, description) {
+  if (pct == null && !users) return '';
+  return `<div class="funnel-step-conversion">
+    <span class="funnel-step-conversion-pct">${formatPctPoints(pct)} · ${formatNum(users || 0)} users</span>
+    <span class="funnel-step-conversion-desc">${description}</span>
+  </div>`;
+}
+
+function renderAwarenessMetricsHtml(gsc, social, gscMetric, socialMetric) {
+  return `
+    <div class="pipeline-awareness-metrics">
+      <div class="pipeline-awareness-metric">
+        <div class="pipeline-awareness-value">${formatNum(gsc)}</div>
+        <div class="pipeline-awareness-label">Google search impressions</div>
+        <div class="pipeline-awareness-hint">Times we appeared in search results</div>
+        ${deltaBadge(gscMetric)}
+      </div>
+      <div class="pipeline-awareness-metric">
+        <div class="pipeline-awareness-value">${formatNum(social)}</div>
+        <div class="pipeline-awareness-label">Social media views</div>
+        <div class="pipeline-awareness-hint">Views on Facebook, Instagram, etc.</div>
+        ${deltaBadge(socialMetric)}
+      </div>
+    </div>
+  `;
+}
+
 function renderPipeline(data) {
   const el = document.getElementById('combinedPipeline');
   if (!el || !data?.pipeline) return;
   const p = data.pipeline;
+  const awarenessStage = data.stages?.awareness;
   const stages = [
-    { num: 1, label: 'Awareness', anchor: 'stage-awareness', metric: p.awareness },
-    { num: 2, label: 'Consideration', anchor: 'stage-consideration', metric: p.consideration },
-    { num: 3, label: 'Commit', anchor: 'stage-commit', metric: p.commit },
-    { num: 4, label: 'Proceed', anchor: 'stage-proceed', metric: p.proceed },
-    { num: 5, label: 'Result', anchor: 'stage-result', metric: p.result },
+    {
+      num: 1,
+      label: 'Awareness',
+      anchor: 'stage-awareness',
+      awarenessMetrics: {
+        gsc: awarenessStage?.gscImpressions?.total?.value || 0,
+        social: awarenessStage?.socialChannelViews?.total?.value || 0,
+        gscMetric: awarenessStage?.gscImpressions?.total,
+        socialMetric: awarenessStage?.socialChannelViews?.total,
+      },
+    },
+    {
+      num: 2,
+      label: 'Consideration',
+      anchor: 'stage-consideration',
+      raw: pipelineMetric(p.consideration)?.value || 0,
+      metric: p.consideration,
+      sourceBreakdown: data.stages?.consideration?.sourceBreakdown,
+    },
+    {
+      num: 3,
+      label: 'Commit',
+      anchor: 'stage-commit',
+      raw: pipelineMetric(p.commit)?.value || 0,
+      metric: p.commit,
+      conversionHint: 'of website visitors signed up or subscribed',
+    },
+    {
+      num: 4,
+      label: 'Proceed',
+      anchor: 'stage-proceed',
+      raw: pipelineMetric(p.proceed)?.value || 0,
+      metric: p.proceed,
+      conversionHint: 'of sign-ups moved on to apply or use a product',
+    },
+    {
+      num: 5,
+      label: 'Result',
+      anchor: 'stage-result',
+      raw: pipelineMetric(p.result)?.value || 0,
+      metric: p.result,
+      conversionHint: 'of total applications were selected (job offer)',
+    },
   ];
   el.innerHTML = stages.map((s, i) => {
     const m = pipelineMetric(s.metric);
+    const prev = i > 0 ? stages[i - 1] : null;
+    const convLine = s.sourceBreakdown
+      ? funnelConsiderationSourcesHtml(s.sourceBreakdown)
+      : s.awarenessMetrics
+        ? ''
+        : funnelStepConversionPlain(
+          prev ? conversionFromPrevious(s.raw, prev.raw) : null,
+          s.conversionHint || 'moved to this step from the previous one',
+        );
+    const valueBlock = s.awarenessMetrics
+      ? renderAwarenessMetricsHtml(
+        s.awarenessMetrics.gsc,
+        s.awarenessMetrics.social,
+        s.awarenessMetrics.gscMetric,
+        s.awarenessMetrics.socialMetric,
+      )
+      : `
+      <div class="pipeline-value">${formatNum(s.raw)}</div>
+      ${deltaBadge(m)}
+    `;
     return `
-    <a href="#${s.anchor}" class="pipeline-stage">
+    <a href="#${s.anchor}" class="pipeline-stage${s.awarenessMetrics ? ' pipeline-stage-awareness' : ''}">
       <div class="pipeline-num">${s.num}</div>
       <div class="pipeline-label">${s.label}</div>
-      <div class="pipeline-value">${formatNum(m?.value)}</div>
-      ${deltaBadge(m)}
+      ${valueBlock}
+      ${convLine}
     </a>
     ${i < stages.length - 1 ? '<div class="pipeline-arrow">→</div>' : ''}
   `;
@@ -188,23 +323,29 @@ function renderAwareness(data) {
   el.innerHTML = `
     ${periodHint(data)}
     <div class="kpi-card kpi-card-combined">
-      <div class="label">Total awareness</div>
-      <div class="value">${formatNum(s.total.total.value)}</div>
-      ${deltaBadge(s.total.total)}
+      <div class="label">GSC search impressions</div>
+      <div class="value">${formatNum(s.gscImpressions.total.value)}</div>
+      ${deltaBadge(s.gscImpressions.total)}
+    </div>
+    <div class="kpi-card kpi-card-combined">
+      <div class="label">Social channel views</div>
+      <div class="value">${formatNum(s.socialChannelViews.total.value)}</div>
+      ${deltaBadge(s.socialChannelViews.total)}
+      <div class="kpi-sub">Manual entry — separate from search impressions</div>
     </div>
     <div class="kpi-card">
-      <div class="label">WORK JAPAN</div>
-      <div class="value">${formatNum(s.total.workjapan.value)}</div>
-      <div class="kpi-sub">${formatPct(s.total.workjapanPct)} of total</div>
+      <div class="label">WORK JAPAN — search impressions</div>
+      <div class="value">${formatNum(s.gscImpressions.workjapan.value)}</div>
+      <div class="kpi-sub">${formatPct(s.gscImpressions.workjapanPct)} of combined GSC</div>
     </div>
     <div class="kpi-card">
-      <div class="label">Nyuuly</div>
-      <div class="value">${formatNum(s.total.nyuuly.value)}</div>
-      <div class="kpi-sub">${formatPct(s.total.nyuulyPct)} of total</div>
+      <div class="label">Nyuuly — search impressions</div>
+      <div class="value">${formatNum(s.gscImpressions.nyuuly.value)}</div>
+      <div class="kpi-sub">${formatPct(s.gscImpressions.nyuulyPct)} of combined GSC</div>
     </div>
   `;
 
-  renderSplitChart('chartAwarenessSplit', s.total.workjapan.value, s.total.nyuuly.value);
+  renderSplitChart('chartAwarenessSplit', s.gscImpressions.workjapan.value, s.gscImpressions.nyuuly.value);
 
   destroyChart('chartAwarenessComponents');
   const compCtx = document.getElementById('chartAwarenessComponents');
@@ -241,8 +382,7 @@ function renderAwareness(data) {
   }
 
   document.getElementById('awarenessBreakdown').innerHTML = renderBreakdownTable('Awareness breakdown', [
-    { label: 'Total awareness (GSC + social channels)', ...s.total, total: s.total.total },
-    { label: 'GSC impressions', ...s.gscImpressions, total: s.gscImpressions.total },
+    { label: 'GSC search impressions', ...s.gscImpressions, total: s.gscImpressions.total },
     { label: 'Social channel views (manual)', ...s.socialChannelViews, total: s.socialChannelViews.total },
     { label: 'Social post views (CSV)', ...s.socialPostViews, total: s.socialPostViews.total },
   ]);

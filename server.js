@@ -11,6 +11,8 @@ const {
   proratePagesRows,
   prorateFunnelRows,
   usersKpisFromRows,
+  websiteUsersSourceBreakdown,
+  websiteUsersSourceBreakdownFromChannelMap,
 } = require('./database/date-filter');
 const {
   FILE_TYPES,
@@ -294,12 +296,25 @@ function monthRangeFromKey(month) {
   };
 }
 
+/** GSC CSV CTR values are always percentages (e.g. "0.11%" → 0.0011 as a fraction). */
 function parseGscPct(val) {
   if (val == null || val === '') return 0;
   const s = String(val).trim().replace('%', '');
   const n = parseFloat(s);
   if (Number.isNaN(n)) return 0;
-  return n > 1 ? n / 100 : n;
+  return n / 100;
+}
+
+function gscCtrFraction(clicks, impressions, storedCtr = null) {
+  if (impressions > 0) return clicks / impressions;
+  return storedCtr != null ? storedCtr : 0;
+}
+
+function normalizeGscStatRow(row) {
+  return {
+    ...row,
+    ctr: gscCtrFraction(row.clicks, row.impressions, row.ctr),
+  };
 }
 
 function zipEntryText(zip, name) {
@@ -392,8 +407,10 @@ function getSearchConsolePayload(company, start, end) {
   `).all(...params);
 
   const daily = rows.filter((r) => r.dimension_type === 'daily').sort((a, b) => a.dimension_value.localeCompare(b.dimension_value));
-  const topQueries = rows.filter((r) => r.dimension_type === 'query').sort((a, b) => b.clicks - a.clicks).slice(0, 15);
-  const topPages = rows.filter((r) => r.dimension_type === 'page').sort((a, b) => b.clicks - a.clicks).slice(0, 15);
+  const topQueries = rows.filter((r) => r.dimension_type === 'query').sort((a, b) => b.clicks - a.clicks).slice(0, 15)
+    .map(normalizeGscStatRow);
+  const topPages = rows.filter((r) => r.dimension_type === 'page').sort((a, b) => b.clicks - a.clicks).slice(0, 15)
+    .map(normalizeGscStatRow);
 
   return {
     kpis: gscKpisFromRows(daily),
@@ -967,8 +984,6 @@ function monthlyKpisForMonth(company, monthKey) {
     WHERE ${coFilter} ${MONTH_KEY_SQL.nyuuly_result_stats} = ?
   `).get(...withCompany());
 
-  const awarenessTotalViews = (gscKpis.impressions || 0) + (socialChannels?.socialChannelViews || 0);
-
   return {
     ...social,
     ...users,
@@ -991,7 +1006,6 @@ function monthlyKpisForMonth(company, monthKey) {
     gscCtr: gscKpis.ctr,
     gscAvgPosition: gscKpis.avgPosition,
     socialChannelViews: socialChannels?.socialChannelViews || 0,
-    awarenessTotalViews,
   };
 }
 
@@ -1814,7 +1828,6 @@ function buildCombinedFunnelData(monthKey) {
   }).sort((a, b) => b.total - a.total);
 
   const awareness = {
-    total: companySplit(wj.awarenessTotalViews, ny.awarenessTotalViews, wjPrev?.awarenessTotalViews, nyPrev?.awarenessTotalViews),
     gscImpressions: companySplit(wj.gscImpressions, ny.gscImpressions, wjPrev?.gscImpressions, nyPrev?.gscImpressions),
     socialChannelViews: companySplit(wj.socialChannelViews, ny.socialChannelViews, wjPrev?.socialChannelViews, nyPrev?.socialChannelViews),
     socialPostViews: companySplit(wj.socialViews, ny.socialViews, wjPrev?.socialViews, nyPrev?.socialViews),
@@ -1827,6 +1840,9 @@ function buildCombinedFunnelData(monthKey) {
   const consideration = {
     totalUsers: companySplit(wj.totalUsers, ny.totalUsers, wjPrev?.totalUsers, nyPrev?.totalUsers),
     channels,
+    sourceBreakdown: websiteUsersSourceBreakdownFromChannelMap(
+      Object.fromEntries(channels.map((c) => [c.channel, c.total])),
+    ),
   };
 
   const commit = {
@@ -1881,7 +1897,10 @@ function buildCombinedFunnelData(monthKey) {
     prevMonth: prevKey,
     prevMonthLabel: prevKey ? monthKeyLabel(prevKey) : null,
     pipeline: {
-      awareness: awareness.total,
+      awareness: {
+        gscImpressions: awareness.gscImpressions,
+        socialChannelViews: awareness.socialChannelViews,
+      },
       consideration: consideration.totalUsers,
       commit: commit.totalSignUps,
       proceed: proceed.total,
@@ -2325,8 +2344,9 @@ app.get('/api/users', (req, res) => {
   const rawRows = db.prepare(`SELECT * FROM user_acquisition ${clause} ORDER BY total_users DESC`).all(...params);
   const rows = start && end ? prorateUsersRows(rawRows, start, end) : rawRows;
   const kpis = usersKpisFromRows(rows);
+  const sourceBreakdown = websiteUsersSourceBreakdown(rows);
 
-  res.json({ rows, kpis, filter: { company, start, end } });
+  res.json({ rows, kpis, sourceBreakdown, filter: { company, start, end } });
 });
 
 app.get('/api/pages', (req, res) => {
@@ -3337,7 +3357,6 @@ app.get('/api/journeys', (req, res) => {
       const monthKey = start?.slice(0, 7);
       const socialChannels = monthKey ? getSocialChannelViewsForMonth(company, monthKey) : { totalViews: 0, channels: [] };
       const gscImpressions = searchConsole.kpis.impressions || 0;
-      const awarenessTotalViews = gscImpressions + (socialChannels.totalViews || 0);
 
       return {
         ...base,
@@ -3352,7 +3371,6 @@ app.get('/api/journeys', (req, res) => {
           gscAvgPosition: searchConsole.kpis.avgPosition,
           socialChannelViews: socialChannels.totalViews || 0,
           socialChannels: socialChannels.channels || [],
-          awarenessTotalViews,
         },
       };
     }
