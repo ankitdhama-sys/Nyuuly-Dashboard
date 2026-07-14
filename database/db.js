@@ -295,6 +295,39 @@ function initDb() {
       upload_date TEXT DEFAULT (date('now')),
       UNIQUE(company, month_label)
     );
+
+    CREATE TABLE IF NOT EXISTS campaign_stats (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      company TEXT NOT NULL,
+      month_label TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      month INTEGER NOT NULL,
+      placement TEXT NOT NULL DEFAULT '',
+      campaign_type TEXT NOT NULL DEFAULT '',
+      location_detail TEXT NOT NULL DEFAULT '',
+      utm_or_promo TEXT NOT NULL DEFAULT '',
+      monthly_cost REAL DEFAULT 0,
+      weekly_clicks INTEGER DEFAULT 0,
+      weekly_result INTEGER DEFAULT 0,
+      upload_date TEXT DEFAULT (date('now')),
+      UNIQUE(company, month_label, utm_or_promo)
+    );
+
+    CREATE TABLE IF NOT EXISTS workjapan_profile_stats (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      company TEXT NOT NULL DEFAULT 'workjapan',
+      month_label TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      month INTEGER NOT NULL,
+      mobile_number_collected INTEGER DEFAULT 0,
+      registered_visa_corrected INTEGER DEFAULT 0,
+      registered_station_name_corrected INTEGER DEFAULT 0,
+      registered_age_collected INTEGER DEFAULT 0,
+      jp_level_collected INTEGER DEFAULT 0,
+      rc_uploaded INTEGER DEFAULT 0,
+      upload_date TEXT DEFAULT (date('now')),
+      UNIQUE(company, month_label)
+    );
   `);
 }
 

@@ -13,6 +13,7 @@
     <div class="nav-links">
       <a href="/" class="active">Dashboard</a>
       <a href="/combined">Combined Funnel</a>
+      <a href="/campaigns">Campaigns</a>
       <a href="/upload">Upload Data</a>
       <span class="nav-updated" id="lastUpdated">Last updated: —</span>
     </div>
@@ -41,7 +42,7 @@
         <span class="collapse-icon">▼</span>
       </div>
       <div class="section-body">
-        <p class="subsection-hint">Each card shows this month’s total. Consideration splits website users by GA4 channel (search, social, other). Later stages show what % moved on from the previous step. Awareness shows Google search and social media separately — they are not added together.</p>
+        <p class="subsection-hint">Each card shows this month’s total. Consideration splits website users by GA4 channel (search, social, other). Later stages show what % moved on from the previous step. Awareness shows Google search and social media separately — they are not added together. Nyuuly Result sums Mobile Sim purchased, Welcome package purchased, Form filled, and Ask me request into one total.</p>
         <div class="funnel-pipeline" id="funnelPipeline"></div>
       </div>
     </section>
@@ -294,6 +295,27 @@
     </div>
     <div id="commitRegistration" class="commit-registration workjapan-only"></div>
     <div id="commitBarriers" class="barrier-highlight-panel workjapan-only"></div>
+
+    <section class="section workjapan-only" id="section-workjapan-profile">
+      <div class="section-header" data-section="workjapan-profile">
+        <h2>Post-Registration Profile Steps</h2>
+        <span class="collapse-icon">▼</span>
+      </div>
+      <div class="section-body">
+        <p class="subsection-hint">Profile data collected after registration — enter monthly counts on the <a href="/upload">upload page</a>.</p>
+        <div class="kpi-row" id="workjapanProfileKpis"></div>
+        <div class="chart-grid">
+          <div class="chart-container">
+            <div class="chart-header"><h3>This month — users at each step</h3><button class="chart-download" data-chart="chartWorkJapanProfileSteps">PNG</button></div>
+            <div class="chart-wrapper chart-wrapper-sm"><canvas id="chartWorkJapanProfileSteps"></canvas></div>
+          </div>
+          <div class="chart-container full-width">
+            <div class="chart-header"><h3>Profile steps — last 6 months</h3><button class="chart-download" data-chart="chartWorkJapanProfileHistory">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartWorkJapanProfileHistory"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <section class="section workjapan-only" id="section-platform">
       <div class="section-header" data-section="platform">

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Campaign Performance — Analytics Dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body class="campaigns-page">
+  <nav class="nav">
+    <div class="nav-brand">Analytics Dashboard</div>
+    <div class="nav-links">
+      <a href="/">Dashboard</a>
+      <a href="/combined">Combined Funnel</a>
+      <a href="/campaigns" class="active">Campaigns</a>
+      <a href="/upload">Upload Data</a>
+      <span class="nav-updated" id="lastUpdated">Last updated: —</span>
+    </div>
+  </nav>
+
+  <div class="controls">
+    <div class="tab-group" id="companyTabs">
+      <button class="tab-btn" data-company="nyuuly">Nyuuly</button>
+      <button class="tab-btn active" data-company="workjapan">WORK JAPAN</button>
+    </div>
+    <select id="monthSelect" class="month-select"></select>
+    <div class="filter-label" id="filterLabel">Loading filters…</div>
+  </div>
+
+  <main class="main campaigns-main">
+    <section class="section">
+      <div class="section-body">
+        <h1 class="campaigns-title">Campaign Performance</h1>
+        <p class="subsection-hint">Monthly paid and digital campaign results for the selected company. Enter data on the <a href="/upload">upload page</a> under <strong>Marketing Campaigns</strong>.</p>
+        <div class="kpi-row" id="campaignKpis"></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-body">
+        <div class="chart-grid">
+          <div class="chart-container">
+            <div class="chart-header"><h3>Spend by campaign</h3></div>
+            <div class="chart-wrapper"><canvas id="chartCampaignSpend"></canvas></div>
+          </div>
+          <div class="chart-container">
+            <div class="chart-header"><h3>Clicks vs results</h3></div>
+            <div class="chart-wrapper"><canvas id="chartCampaignClicksResults"></canvas></div>
+          </div>
+          <div class="chart-container">
+            <div class="chart-header"><h3>Spend share by placement</h3></div>
+            <div class="chart-wrapper chart-wrapper-sm"><canvas id="chartCampaignSpendShare"></canvas></div>
+          </div>
+          <div class="chart-container full-width">
+            <div class="chart-header"><h3>Monthly trend — spend, clicks, results</h3></div>
+            <div class="chart-wrapper"><canvas id="chartCampaignTrend"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-body">
+        <h3 class="subsection-title">Campaign breakdown</h3>
+        <div class="table-wrap" id="campaignTableWrap"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/campaigns.js"></script>
+</body>
+</html>

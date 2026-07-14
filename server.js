@@ -776,6 +776,8 @@ const MONTH_KEY_SQL = {
   nyuuly_proceed_stats: `printf('%04d-%02d', year, month)`,
   nyuuly_result_stats: `printf('%04d-%02d', year, month)`,
   brand_messages: `printf('%04d-%02d', year, month)`,
+  campaign_stats: `printf('%04d-%02d', year, month)`,
+  workjapan_profile_stats: `printf('%04d-%02d', year, month)`,
   monthly: `printf('%04d-%02d', year, month)`,
 };
 
@@ -809,6 +811,8 @@ function getAvailableMonths(company) {
     `SELECT DISTINCT ${MONTH_KEY_SQL.nyuuly_proceed_stats} AS mk FROM nyuuly_proceed_stats ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.nyuuly_result_stats} AS mk FROM nyuuly_result_stats ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.brand_messages} AS mk FROM brand_messages ${co.clause}`,
+    `SELECT DISTINCT ${MONTH_KEY_SQL.campaign_stats} AS mk FROM campaign_stats ${co.clause}`,
+    `SELECT DISTINCT ${MONTH_KEY_SQL.workjapan_profile_stats} AS mk FROM workjapan_profile_stats ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.monthly} AS mk FROM platform_stats ${co.clause}`,
     `SELECT DISTINCT ${MONTH_KEY_SQL.monthly} AS mk FROM applicant_stats ${co.clause}`,
   ];
@@ -984,6 +988,18 @@ function monthlyKpisForMonth(company, monthKey) {
     WHERE ${coFilter} ${MONTH_KEY_SQL.nyuuly_result_stats} = ?
   `).get(...withCompany());
 
+  const wjProfile = db.prepare(`
+    SELECT
+      COALESCE(mobile_number_collected, 0) AS mobileNumberCollected,
+      COALESCE(registered_visa_corrected, 0) AS registeredVisaCorrected,
+      COALESCE(registered_station_name_corrected, 0) AS registeredStationNameCorrected,
+      COALESCE(registered_age_collected, 0) AS registeredAgeCollected,
+      COALESCE(jp_level_collected, 0) AS jpLevelCollected,
+      COALESCE(rc_uploaded, 0) AS rcUploaded
+    FROM workjapan_profile_stats
+    WHERE ${coFilter} ${MONTH_KEY_SQL.workjapan_profile_stats} = ?
+  `).get(...withCompany());
+
   return {
     ...social,
     ...users,
@@ -1001,6 +1017,12 @@ function monthlyKpisForMonth(company, monthKey) {
     welcomePackagePurchased: nyuulyResult?.welcomePackagePurchased || 0,
     formFilled: nyuulyResult?.formFilled || 0,
     askMeRequest: nyuulyResult?.askMeRequest || 0,
+    mobileNumberCollected: wjProfile?.mobileNumberCollected || 0,
+    registeredVisaCorrected: wjProfile?.registeredVisaCorrected || 0,
+    registeredStationNameCorrected: wjProfile?.registeredStationNameCorrected || 0,
+    registeredAgeCollected: wjProfile?.registeredAgeCollected || 0,
+    jpLevelCollected: wjProfile?.jpLevelCollected || 0,
+    rcUploaded: wjProfile?.rcUploaded || 0,
     gscClicks: gscKpis.clicks,
     gscImpressions: gscKpis.impressions,
     gscCtr: gscKpis.ctr,
@@ -1149,6 +1171,62 @@ function getNyuulyCommitForMonth(company, monthKey) {
   };
 }
 
+function saveWorkJapanProfileRow(company, parsedMonth, data) {
+  db.prepare(`
+    INSERT OR REPLACE INTO workjapan_profile_stats
+    (company, month_label, year, month, mobile_number_collected, registered_visa_corrected,
+     registered_station_name_corrected, registered_age_collected, jp_level_collected, rc_uploaded)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    company,
+    parsedMonth.month_label,
+    parsedMonth.year,
+    parsedMonth.month,
+    parseNum(data.mobile_number_collected),
+    parseNum(data.registered_visa_corrected),
+    parseNum(data.registered_station_name_corrected),
+    parseNum(data.registered_age_collected),
+    parseNum(data.jp_level_collected),
+    parseNum(data.rc_uploaded),
+  );
+}
+
+function getWorkJapanProfileForMonth(company, monthKey) {
+  const parsed = parseMonthLabel(monthKey);
+  if (!parsed) {
+    return {
+      mobileNumberCollected: 0,
+      registeredVisaCorrected: 0,
+      registeredStationNameCorrected: 0,
+      registeredAgeCollected: 0,
+      jpLevelCollected: 0,
+      rcUploaded: 0,
+      month_label: null,
+    };
+  }
+  const coFilter = company && company !== 'all' ? 'company = ? AND' : '';
+  const params = company && company !== 'all'
+    ? [company, parsed.year, parsed.month]
+    : [parsed.year, parsed.month];
+
+  const row = db.prepare(`
+    SELECT mobile_number_collected, registered_visa_corrected, registered_station_name_corrected,
+           registered_age_collected, jp_level_collected, rc_uploaded, month_label
+    FROM workjapan_profile_stats
+    WHERE ${coFilter} year = ? AND month = ?
+  `).get(...params);
+
+  return {
+    mobileNumberCollected: row?.mobile_number_collected || 0,
+    registeredVisaCorrected: row?.registered_visa_corrected || 0,
+    registeredStationNameCorrected: row?.registered_station_name_corrected || 0,
+    registeredAgeCollected: row?.registered_age_collected || 0,
+    jpLevelCollected: row?.jp_level_collected || 0,
+    rcUploaded: row?.rc_uploaded || 0,
+    month_label: row?.month_label || parsed.month_label,
+  };
+}
+
 function saveNyuulyProceedRow(company, parsedMonth, data) {
   db.prepare(`
     INSERT OR REPLACE INTO nyuuly_proceed_stats
@@ -1268,6 +1346,104 @@ function getBrandMessageForMonth(company, monthKey) {
   return {
     message: row?.message || '',
     month_label: row?.month_label || null,
+  };
+}
+
+function normalizeCampaignRow(row) {
+  const monthlyCost = parseNum(row.monthly_cost ?? row.monthlyCost);
+  const weeklyClicks = parseNum(row.weekly_clicks ?? row.weeklyClicks);
+  const weeklyResult = parseNum(row.weekly_result ?? row.weeklyResult);
+  const conversionRate = weeklyClicks > 0
+    ? Math.round((weeklyResult / weeklyClicks) * 10000) / 100
+    : null;
+  const costPerClick = weeklyClicks > 0
+    ? Math.round((monthlyCost / weeklyClicks) * 100) / 100
+    : null;
+  const costPerResult = weeklyResult > 0
+    ? Math.round((monthlyCost / weeklyResult) * 100) / 100
+    : null;
+
+  return {
+    placement: row.placement || '',
+    campaignType: row.campaign_type || row.campaignType || '',
+    locationDetail: row.location_detail || row.locationDetail || '',
+    utmOrPromo: row.utm_or_promo || row.utmOrPromo || '',
+    monthlyCost,
+    weeklyClicks,
+    weeklyResult,
+    conversionRate,
+    costPerClick,
+    costPerResult,
+  };
+}
+
+function campaignKpisFromRows(rows) {
+  const totalCost = rows.reduce((sum, row) => sum + (row.monthlyCost || 0), 0);
+  const totalClicks = rows.reduce((sum, row) => sum + (row.weeklyClicks || 0), 0);
+  const totalResults = rows.reduce((sum, row) => sum + (row.weeklyResult || 0), 0);
+  return {
+    totalCost,
+    totalClicks,
+    totalResults,
+    costPerClick: totalClicks > 0 ? Math.round((totalCost / totalClicks) * 100) / 100 : null,
+    costPerResult: totalResults > 0 ? Math.round((totalCost / totalResults) * 100) / 100 : null,
+    conversionRate: totalClicks > 0
+      ? Math.round((totalResults / totalClicks) * 10000) / 100
+      : null,
+  };
+}
+
+function saveCampaignsForMonth(company, parsedMonth, campaigns) {
+  db.prepare(`
+    DELETE FROM campaign_stats
+    WHERE company = ? AND month_label = ?
+  `).run(company, parsedMonth.month_label);
+
+  const insert = db.prepare(`
+    INSERT INTO campaign_stats
+    (company, month_label, year, month, placement, campaign_type, location_detail,
+     utm_or_promo, monthly_cost, weekly_clicks, weekly_result)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  let saved = 0;
+  for (const row of campaigns) {
+    const utm = String(row.utmOrPromo || row.utm_or_promo || '').trim();
+    const placement = String(row.placement || '').trim();
+    if (!placement && !utm) continue;
+    insert.run(
+      company,
+      parsedMonth.month_label,
+      parsedMonth.year,
+      parsedMonth.month,
+      placement,
+      String(row.campaignType || row.campaign_type || '').trim(),
+      String(row.locationDetail || row.location_detail || '').trim(),
+      utm || `${placement}`.slice(0, 80),
+      parseNum(row.monthlyCost ?? row.monthly_cost),
+      parseNum(row.weeklyClicks ?? row.weekly_clicks),
+      parseNum(row.weeklyResult ?? row.weekly_result),
+    );
+    saved++;
+  }
+  return saved;
+}
+
+function getCampaignsForMonth(company, monthKey) {
+  const coFilter = company && company !== 'all' ? 'company = ? AND' : '';
+  const params = company && company !== 'all' ? [company, monthKey] : [monthKey];
+
+  const rows = db.prepare(`
+    SELECT placement, campaign_type, location_detail, utm_or_promo,
+           monthly_cost, weekly_clicks, weekly_result
+    FROM campaign_stats
+    WHERE ${coFilter} ${MONTH_KEY_SQL.campaign_stats} = ?
+    ORDER BY monthly_cost DESC, placement ASC
+  `).all(...params).map(normalizeCampaignRow);
+
+  return {
+    rows,
+    kpis: campaignKpisFromRows(rows),
   };
 }
 
@@ -1580,6 +1756,16 @@ function getManualDataStatus(company) {
     FROM brand_messages WHERE company = ?
   `).get(company);
 
+  const campaignRows = db.prepare(`
+    SELECT COUNT(*) as count, MAX(month_label) as latestMonth, MAX(upload_date) as lastUpdated
+    FROM campaign_stats WHERE company = ?
+  `).get(company);
+
+  const wjProfileRows = db.prepare(`
+    SELECT COUNT(*) as count, MAX(month_label) as latestMonth, MAX(upload_date) as lastUpdated
+    FROM workjapan_profile_stats WHERE company = ?
+  `).get(company);
+
   const statusBlock = (rows) => ({
     uploaded: rows.count > 0,
     rowsAdded: rows.count,
@@ -1600,6 +1786,8 @@ function getManualDataStatus(company) {
     'nyuuly-proceed': statusBlock(nyuulyProceedRows),
     'nyuuly-result': statusBlock(nyuulyResultRows),
     'brand-message': statusBlock(brandMessageRows),
+    campaigns: statusBlock(campaignRows),
+    'workjapan-profile': statusBlock(wjProfileRows),
   };
 }
 
@@ -1921,6 +2109,10 @@ app.get('/combined', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'combined.html'));
 });
 
+app.get('/campaigns', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'campaigns.html'));
+});
+
 app.post('/api/upload', uploadLimiter, upload.single('file'), (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
@@ -2090,6 +2282,30 @@ app.post('/api/manual/brand-message', uploadLimiter, (req, res) => {
   }
 });
 
+app.post('/api/manual/campaigns', uploadLimiter, (req, res) => {
+  try {
+    const { company, month, campaigns } = req.body;
+    if (!company || !['nyuuly', 'workjapan'].includes(company)) {
+      return res.status(400).json({ error: 'Invalid company' });
+    }
+    if (!month) return res.status(400).json({ error: 'Month is required' });
+    if (!Array.isArray(campaigns)) {
+      return res.status(400).json({ error: 'Campaign rows are required' });
+    }
+
+    const parsedMonth = parseMonthLabel(month);
+    if (!parsedMonth) return res.status(400).json({ error: 'Invalid month format' });
+
+    const saved = saveCampaignsForMonth(company, parsedMonth, campaigns);
+    if (!saved) return res.status(400).json({ error: 'Add at least one campaign with placement or UTM/promo code' });
+
+    logUpload(`Manual entry — ${parsedMonth.month_label}`, company, 'campaigns', saved, 0);
+    res.json({ success: true, rowsAdded: saved, month: parsedMonth.month_label, company });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/manual/app-downloads', uploadLimiter, (req, res) => {
   try {
     const { company, month, platforms } = req.body;
@@ -2211,6 +2427,40 @@ app.post('/api/manual/nyuuly-commit', uploadLimiter, (req, res) => {
     });
 
     logUpload(`Manual entry — ${parsedMonth.month_label}`, company, 'nyuuly-commit', 1, 0);
+    res.json({ success: true, rowsAdded: 1, month: parsedMonth.month_label, company });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/manual/workjapan-profile', uploadLimiter, (req, res) => {
+  try {
+    const { company, month, mobile_number_collected, registered_visa_corrected,
+      registered_station_name_corrected, registered_age_collected, jp_level_collected, rc_uploaded } = req.body;
+    if (company !== 'workjapan') {
+      return res.status(400).json({ error: 'Profile step data is only available for WORK JAPAN' });
+    }
+    if (!month) return res.status(400).json({ error: 'Month is required' });
+
+    const parsedMonth = parseMonthLabel(month);
+    if (!parsedMonth) return res.status(400).json({ error: 'Invalid month format' });
+
+    const values = [mobile_number_collected, registered_visa_corrected, registered_station_name_corrected,
+      registered_age_collected, jp_level_collected, rc_uploaded];
+    if (values.every((v) => v === '' || v == null)) {
+      return res.status(400).json({ error: 'Enter at least one profile step count' });
+    }
+
+    saveWorkJapanProfileRow(company, parsedMonth, {
+      mobile_number_collected: mobile_number_collected ?? 0,
+      registered_visa_corrected: registered_visa_corrected ?? 0,
+      registered_station_name_corrected: registered_station_name_corrected ?? 0,
+      registered_age_collected: registered_age_collected ?? 0,
+      jp_level_collected: jp_level_collected ?? 0,
+      rc_uploaded: rc_uploaded ?? 0,
+    });
+
+    logUpload(`Manual entry — ${parsedMonth.month_label}`, company, 'workjapan-profile', 1, 0);
     res.json({ success: true, rowsAdded: 1, month: parsedMonth.month_label, company });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2578,6 +2828,71 @@ app.get('/api/nyuuly-commit-stats/history', (req, res) => {
   res.json({ history, filter: { company } });
 });
 
+app.get('/api/workjapan-profile-stats', (req, res) => {
+  const { company, start, end } = req.query;
+  if (company !== 'workjapan') {
+    return res.status(400).json({ error: 'Profile step stats are only available for WORK JAPAN' });
+  }
+  const monthKey = start?.slice(0, 7);
+  if (!monthKey) {
+    return res.json({
+      kpis: {
+        mobileNumberCollected: 0,
+        registeredVisaCorrected: 0,
+        registeredStationNameCorrected: 0,
+        registeredAgeCollected: 0,
+        jpLevelCollected: 0,
+        rcUploaded: 0,
+      },
+      latest: null,
+      filter: { company, start, end },
+    });
+  }
+  const data = getWorkJapanProfileForMonth(company, monthKey);
+  res.json({
+    kpis: {
+      mobileNumberCollected: data.mobileNumberCollected,
+      registeredVisaCorrected: data.registeredVisaCorrected,
+      registeredStationNameCorrected: data.registeredStationNameCorrected,
+      registeredAgeCollected: data.registeredAgeCollected,
+      jpLevelCollected: data.jpLevelCollected,
+      rcUploaded: data.rcUploaded,
+    },
+    latest: data.month_label ? {
+      month_label: data.month_label,
+      mobile_number_collected: data.mobileNumberCollected,
+      registered_visa_corrected: data.registeredVisaCorrected,
+      registered_station_name_corrected: data.registeredStationNameCorrected,
+      registered_age_collected: data.registeredAgeCollected,
+      jp_level_collected: data.jpLevelCollected,
+      rc_uploaded: data.rcUploaded,
+    } : null,
+    filter: { company, start, end, month: monthKey },
+  });
+});
+
+app.get('/api/workjapan-profile-stats/history', (req, res) => {
+  const { company } = req.query;
+  if (company !== 'workjapan') {
+    return res.status(400).json({ error: 'Profile step stats are only available for WORK JAPAN' });
+  }
+  const months = getAvailableMonths(company).slice(-6);
+  const history = months.map((monthKey) => {
+    const data = getWorkJapanProfileForMonth(company, monthKey);
+    return {
+      month: monthKey,
+      label: monthKeyLabel(monthKey),
+      mobileNumberCollected: data.mobileNumberCollected,
+      registeredVisaCorrected: data.registeredVisaCorrected,
+      registeredStationNameCorrected: data.registeredStationNameCorrected,
+      registeredAgeCollected: data.registeredAgeCollected,
+      jpLevelCollected: data.jpLevelCollected,
+      rcUploaded: data.rcUploaded,
+    };
+  });
+  res.json({ history, filter: { company } });
+});
+
 app.get('/api/nyuuly-proceed-stats', (req, res) => {
   const { company, start, end } = req.query;
   if (company !== 'nyuuly') {
@@ -2725,6 +3040,52 @@ app.get('/api/social-channels', (req, res) => {
     ...data,
     kpis: { totalViews: data.totalViews },
     filter: { company, start, end, month: monthKey },
+  });
+});
+
+app.get('/api/campaigns', (req, res) => {
+  const { company, start, end } = req.query;
+  const monthKey = start?.slice(0, 7);
+  if (!monthKey) {
+    return res.json({ rows: [], kpis: campaignKpisFromRows([]), filter: { company, start, end } });
+  }
+  const data = getCampaignsForMonth(company, monthKey);
+  res.json({
+    ...data,
+    filter: { company, start, end, month: monthKey },
+  });
+});
+
+app.get('/api/campaigns/history', (req, res) => {
+  const { company } = req.query;
+  const months = getAvailableMonths(company).slice(-6);
+  const history = months.map((monthKey) => {
+    const data = getCampaignsForMonth(company, monthKey);
+    return {
+      month: monthKey,
+      label: monthKeyLabel(monthKey),
+      ...data.kpis,
+      campaigns: data.rows,
+    };
+  });
+  res.json({ history, filter: { company } });
+});
+
+app.get('/api/campaigns/months', (req, res) => {
+  const { company } = req.query;
+  const months = getAvailableMonths(company).filter((key) => {
+    const coFilter = company && company !== 'all' ? 'company = ? AND' : '';
+    const params = company && company !== 'all' ? [company, key] : [key];
+    const row = db.prepare(`
+      SELECT COUNT(*) AS count FROM campaign_stats
+      WHERE ${coFilter} ${MONTH_KEY_SQL.campaign_stats} = ?
+    `).get(...params);
+    return row?.count > 0;
+  });
+  res.json({
+    months: months.map((key) => ({ key, label: monthKeyLabel(key) })),
+    latest: months.length ? months[months.length - 1] : null,
+    defaultMonth: getDefaultMonthKey(company, months),
   });
 });
 
@@ -3572,7 +3933,7 @@ app.delete('/api/data', (req, res) => {
     return res.status(400).json({ error: 'Must pass confirm=yes' });
   }
 
-  const allowedTables = ['social_posts', 'funnel_data', 'traffic_acquisition', 'user_acquisition', 'pages_screens', 'search_console_stats', 'social_channel_views', 'app_downloads', 'nyuuly_commit_stats', 'nyuuly_proceed_stats', 'nyuuly_result_stats', 'brand_messages', 'platform_stats', 'applicant_stats'];
+  const allowedTables = ['social_posts', 'funnel_data', 'traffic_acquisition', 'user_acquisition', 'pages_screens', 'search_console_stats', 'social_channel_views', 'app_downloads', 'nyuuly_commit_stats', 'nyuuly_proceed_stats', 'nyuuly_result_stats', 'brand_messages', 'campaign_stats', 'workjapan_profile_stats', 'platform_stats', 'applicant_stats'];
   if (!allowedTables.includes(table)) {
     return res.status(400).json({ error: 'Invalid table name' });
   }

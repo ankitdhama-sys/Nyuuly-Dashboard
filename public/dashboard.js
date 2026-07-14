@@ -143,6 +143,34 @@ function funnelUserSourceLine(pct, users, description) {
   </div>`;
 }
 
+const NYUULY_RESULT_KEYS = ['mobileSimPurchased', 'welcomePackagePurchased', 'formFilled', 'askMeRequest'];
+
+const WORKJAPAN_PROFILE_METRICS = [
+  { key: 'mobileNumberCollected', label: 'Mobile number collected', color: '#4F8EF7' },
+  { key: 'registeredVisaCorrected', label: 'Registered visa corrected', color: '#6366f1' },
+  { key: 'registeredStationNameCorrected', label: 'Registered station name corrected', color: '#a78bfa' },
+  { key: 'registeredAgeCollected', label: 'Registered age collected', color: '#fbbf24' },
+  { key: 'jpLevelCollected', label: 'JP level collected', color: '#34d399' },
+  { key: 'rcUploaded', label: 'RC uploaded', color: '#f472b6' },
+];
+
+function nyuulyResultTotal(kpis) {
+  if (!kpis) return 0;
+  return NYUULY_RESULT_KEYS.reduce((sum, key) => sum + (kpis[key] || 0), 0);
+}
+
+function combinedDeltaBadge(deltas, keys) {
+  if (!deltas || !keys?.length) return '';
+  const current = keys.reduce((sum, key) => sum + (deltas[key]?.value || 0), 0);
+  const hasPrev = keys.some((key) => deltas[key]?.prevValue != null);
+  const prev = hasPrev ? keys.reduce((sum, key) => sum + (deltas[key]?.prevValue || 0), 0) : null;
+  if (prev == null || prev === 0) return '<span class="kpi-delta kpi-delta-flat">— no prev</span>';
+  const d = Math.round(((current - prev) / prev) * 1000) / 10;
+  if (d > 0) return `<span class="kpi-delta kpi-delta-up">▲ ${Math.abs(d).toFixed(1)}%</span>`;
+  if (d < 0) return `<span class="kpi-delta kpi-delta-down">▼ ${Math.abs(d).toFixed(1)}%</span>`;
+  return '<span class="kpi-delta kpi-delta-flat">0.0%</span>';
+}
+
 function renderAwarenessMetricsHtml(gsc, social, deltas) {
   return `
     <div class="pipeline-awareness-metrics">
@@ -169,24 +197,31 @@ function gscCtrValue(row) {
 }
 
 function renderPipelineStageCard(stage, prevStage) {
+  const isMultiMetric = stage.awarenessMetrics;
   const convLine = stage.sourceBreakdown
     ? funnelConsiderationSourcesHtml(stage.sourceBreakdown)
-    : stage.awarenessMetrics
+    : isMultiMetric
       ? ''
       : funnelStepConversionPlain(
         prevStage ? conversionFromPrevious(stage.raw, prevStage.raw) : null,
         stage.conversionHint || 'moved to this step from the previous one',
       );
 
+  const deltaHtml = stage.combinedDeltaKeys
+    ? combinedDeltaBadge(stage.deltas, stage.combinedDeltaKeys)
+    : stage.stepDelta
+      ? stepMoMBadge(stage.stepDelta)
+      : deltaBadge(stage.deltas, stage.deltaKey);
+
   const valueBlock = stage.awarenessMetrics
     ? renderAwarenessMetricsHtml(stage.awarenessMetrics.gsc, stage.awarenessMetrics.social, stage.deltas)
     : `
       <div class="pipeline-value">${formatNum(stage.raw)}</div>
-      ${stage.stepDelta ? stepMoMBadge(stage.stepDelta) : deltaBadge(stage.deltas, stage.deltaKey)}
+      ${deltaHtml}
     `;
 
   return `
-    <a href="#${stage.anchor}" class="pipeline-stage${stage.awarenessMetrics ? ' pipeline-stage-awareness' : ''}">
+    <a href="#${stage.anchor}" class="pipeline-stage${isMultiMetric ? ' pipeline-stage-multi' : ''}">
       <div class="pipeline-num">${stage.num}</div>
       <div class="pipeline-label">${stage.label}</div>
       ${valueBlock}
@@ -454,11 +489,11 @@ function renderFunnelPipeline(journeys, platform, applicants, social, users, del
       anchor: 'stage-result-nyuuly',
       num: 5,
       label: 'Result',
-      raw: nyuulyResult?.mobileSimPurchased || 0,
-      deltaKey: 'mobileSimPurchased',
+      raw: nyuulyResultTotal(nyuulyResult),
       deltas,
-      conversionHint: 'of Mobile Sim applicants completed a purchase',
-      detail: `${formatNum(nyuulyResult?.formFilled)} forms filled`,
+      combinedDeltaKeys: NYUULY_RESULT_KEYS,
+      conversionHint: 'of Mobile Sim applicants reached a result outcome',
+      detail: 'Mobile Sim, Welcome package, Form filled, Ask me request',
     },
   ];
 
@@ -588,6 +623,92 @@ function renderNyuulyCommitSection(stats, historyData, deltas, monthly) {
   }
 
   renderChartNyuulyCommit(historyData?.history || []);
+}
+
+function renderWorkJapanProfileSection(stats, historyData, deltas, monthly) {
+  const kpiEl = document.getElementById('workjapanProfileKpis');
+  if (!kpiEl || state.company !== 'workjapan') return;
+
+  const kpis = stats?.kpis || {};
+  const hasData = WORKJAPAN_PROFILE_METRICS.some((m) => (kpis[m.key] || 0) > 0);
+
+  if (!hasData) {
+    kpiEl.innerHTML = '<div class="empty-state">No profile step data — <a href="/upload">enter post-registration profile counts on the upload page</a></div>';
+  } else {
+    kpiEl.innerHTML = `
+      ${monthly?.monthLabel ? `<span class="consideration-audience-period">This month: ${monthly.monthLabel}${monthly.prevMonthLabel ? ` · compared to ${monthly.prevMonthLabel}` : ''}</span>` : ''}
+      ${WORKJAPAN_PROFILE_METRICS.map((m) => `
+        <div class="kpi-card">
+          <div class="label">${m.label}</div>
+          <div class="value">${formatNum(kpis[m.key] || 0)}</div>
+          ${deltaBadge(deltas, m.key)}
+        </div>
+      `).join('')}
+    `;
+  }
+
+  renderChartWorkJapanProfileSteps(kpis);
+  renderChartWorkJapanProfileHistory(historyData?.history || []);
+}
+
+function renderChartWorkJapanProfileSteps(kpis) {
+  destroyChart('chartWorkJapanProfileSteps');
+  const ctx = document.getElementById('chartWorkJapanProfileSteps');
+  if (!ctx) return;
+  const values = WORKJAPAN_PROFILE_METRICS.map((m) => kpis?.[m.key] || 0);
+  if (!values.some((v) => v > 0)) return;
+
+  charts.chartWorkJapanProfileSteps = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: WORKJAPAN_PROFILE_METRICS.map((m) => m.label),
+      datasets: [{
+        label: 'Users',
+        data: values,
+        backgroundColor: WORKJAPAN_PROFILE_METRICS.map((m) => m.color),
+      }],
+    },
+    options: {
+      ...chartDefaults(),
+      indexAxis: 'y',
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid }, beginAtZero: true },
+        y: { ticks: { color: COLORS.text, font: { size: 11 } }, grid: { color: COLORS.grid } },
+      },
+    },
+  });
+}
+
+function renderChartWorkJapanProfileHistory(history) {
+  destroyChart('chartWorkJapanProfileHistory');
+  const ctx = document.getElementById('chartWorkJapanProfileHistory');
+  if (!ctx || !history?.length) return;
+  const hasData = history.some((h) => WORKJAPAN_PROFILE_METRICS.some((m) => (h[m.key] || 0) > 0));
+  if (!hasData) return;
+
+  const labels = history.map((h) => h.label.replace(/^\d{4}\s/, ''));
+  charts.chartWorkJapanProfileHistory = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: WORKJAPAN_PROFILE_METRICS.map((m) => ({
+        label: m.label,
+        data: history.map((h) => h[m.key] || 0),
+        borderColor: m.color,
+        backgroundColor: m.color,
+        tension: 0.3,
+        pointRadius: 3,
+      })),
+    },
+    options: {
+      ...chartDefaults(),
+      scales: {
+        x: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
+        y: { ticks: { color: COLORS.text }, grid: { color: COLORS.grid }, beginAtZero: true },
+      },
+    },
+  });
 }
 
 const MOBILE_SIM_FLOW_STEPS = [
@@ -1118,12 +1239,15 @@ function renderNyuulyResultSection(stats, historyData, deltas, monthly) {
   if (!hasData) {
     kpiEl.innerHTML = '<div class="empty-state">No result data — <a href="/upload">enter Mobile Sim, Welcome package, Form filled, and Ask me request on the upload page</a></div>';
   } else {
+    const total = nyuulyResultTotal(kpis);
     kpiEl.innerHTML = `
       ${monthly?.monthLabel ? `<span class="consideration-audience-period">This month: ${monthly.monthLabel}${monthly.prevMonthLabel ? ` · compared to ${monthly.prevMonthLabel}` : ''}</span>` : ''}
-      <div class="kpi-card"><div class="label">Mobile Sim purchased</div><div class="value">${formatNum(kpis.mobileSimPurchased)}</div>${deltaBadge(deltas, 'mobileSimPurchased')}</div>
-      <div class="kpi-card"><div class="label">Welcome package purchased</div><div class="value">${formatNum(kpis.welcomePackagePurchased)}</div>${deltaBadge(deltas, 'welcomePackagePurchased')}</div>
-      <div class="kpi-card"><div class="label">Form filled</div><div class="value">${formatNum(kpis.formFilled)}</div>${deltaBadge(deltas, 'formFilled')}</div>
-      <div class="kpi-card"><div class="label">Ask me request</div><div class="value">${formatNum(kpis.askMeRequest)}</div>${deltaBadge(deltas, 'askMeRequest')}</div>
+      <div class="kpi-card">
+        <div class="label">Total result outcomes</div>
+        <div class="value">${formatNum(total)}</div>
+        ${combinedDeltaBadge(deltas, NYUULY_RESULT_KEYS)}
+        <div class="kpi-sub">Mobile Sim purchased + Welcome package purchased + Form filled + Ask me request</div>
+      </div>
     `;
   }
 
@@ -2524,9 +2648,11 @@ async function loadDashboard() {
     renderConsiderationInsights(journeys.consideration);
 
     if (isWorkJapan) {
-      const [platformRegHistory, applicantHistory] = await Promise.all([
+      const [platformRegHistory, applicantHistory, workjapanProfileStats, workjapanProfileHistory] = await Promise.all([
         fetchJSONSafe(`/api/platform-stats/history?company=${state.company}`, { history: [] }),
         fetchJSONSafe(`/api/applicant-stats/history?company=${state.company}`, { history: [] }),
+        fetchJSONSafe(`/api/workjapan-profile-stats?${q}`, { kpis: {} }),
+        fetchJSONSafe(`/api/workjapan-profile-stats/history?company=${state.company}`, { history: [] }),
       ]);
       renderFunnelPipeline(journeys, platform, applicants, social, users, deltas);
       const regContext = {
@@ -2548,6 +2674,7 @@ async function loadDashboard() {
       };
       renderCommitRegistration(regContext, journeys.consideration?.registrations);
       renderCommitBarriers(intelligence);
+      renderWorkJapanProfileSection(workjapanProfileStats, workjapanProfileHistory, deltas, monthly);
       renderTopJobsTable(intelligence?.topJobs);
 
       renderPlatformKpis(platform.kpis, deltas);

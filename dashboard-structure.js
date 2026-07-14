@@ -33,9 +33,9 @@ const WORKJAPAN_FUNNEL_STAGES = [
     question: 'Who registers — and who abandons at CV because of barriers like the Japanese phone number?',
     summary: 'Registration funnel, platform sign-ups, and conversion barriers (in-Japan vs abroad, visa type).',
     anchor: 'stage-commit',
-    dataSources: ['Funnel CSV', 'Platform stats (manual)', 'Customer intelligence (manual)'],
+    dataSources: ['Funnel CSV', 'Platform stats (manual)', 'Customer intelligence (manual)', 'Profile steps (manual)'],
     journeyIds: ['register-apply'],
-    sectionIds: ['commit-registration', 'section-platform', 'commit-barriers'],
+    sectionIds: ['commit-registration', 'section-workjapan-profile', 'section-platform', 'commit-barriers'],
   },
   {
     id: 'proceed',

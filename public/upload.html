@@ -12,6 +12,7 @@
     <div class="nav-links">
       <a href="/">Dashboard</a>
       <a href="/combined">Combined Funnel</a>
+      <a href="/campaigns">Campaigns</a>
       <a href="/upload" class="active">Upload Data</a>
     </div>
   </nav>
@@ -123,6 +124,41 @@
       </form>
     </div>
 
+    <div class="upload-slot entry-slot campaigns-slot" id="manualCampaignsSlot">
+      <div class="upload-slot-header">
+        <h3>Marketing Campaigns (Manual)</h3>
+        <span class="slot-badge slot-badge-pending" id="campaignsBadge">No data</span>
+      </div>
+      <p class="slot-meta slot-meta-muted">Track paid and digital campaigns per month for <strong>WORK JAPAN</strong> or <strong>Nyuuly</strong>. Enter placement, channel type, targeting, UTM/promo code, monthly spend, and weekly clicks/results. View performance on the <a href="/campaigns">Campaigns page</a>.</p>
+      <form class="entry-form" id="campaignsEntryForm">
+        <div class="entry-form-row">
+          <label for="campaignsMonth">Month</label>
+          <input type="month" id="campaignsMonth" name="month" required>
+        </div>
+        <div class="entry-table-wrap campaign-table-wrap">
+          <table class="entry-table campaign-entry-table" id="campaignEntryTable">
+            <thead>
+              <tr>
+                <th>Placement</th>
+                <th>Type</th>
+                <th>Location / detail</th>
+                <th>QR or promo code</th>
+                <th>Monthly cost (Rs)</th>
+                <th>Weekly clicks</th>
+                <th>Weekly result</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="campaignRows"></tbody>
+          </table>
+        </div>
+        <div class="campaign-form-actions">
+          <button type="button" class="btn-secondary btn-slot" id="addCampaignRow">+ Add campaign</button>
+          <button type="submit" class="btn-primary btn-slot" id="campaignsSaveBtn">Save Campaigns</button>
+        </div>
+      </form>
+    </div>
+
     <div class="manual-upload-section nyuuly-only" id="nyuulyManualSection">
       <h2>Manual Data Entry — Nyuuly Commit</h2>
       <p>Enter monthly <strong>Nyuuly Subscribe</strong>, <strong>Compass started</strong>, and <strong>Result</strong> counts. Shown in the <strong>Commit</strong> and <strong>Result</strong> stages on the Nyuuly dashboard. <strong>Proceed (Uses)</strong> uses the Pages CSV automatically.</p>
@@ -228,6 +264,47 @@
             </table>
           </div>
           <button type="submit" class="btn-primary btn-slot" id="platformSaveBtn">Save Platform Data</button>
+        </form>
+      </div>
+
+      <div class="upload-slot entry-slot" id="manualWorkJapanProfileSlot">
+        <div class="upload-slot-header">
+          <h3>Post-Registration Profile Steps</h3>
+          <span class="slot-badge slot-badge-pending" id="workjapanProfileBadge">No data</span>
+        </div>
+        <p class="slot-meta slot-meta-muted">Monthly counts for profile steps after registration — shown in the <strong>Commit</strong> stage on the dashboard.</p>
+        <form class="entry-form" id="workjapanProfileEntryForm">
+          <div class="entry-form-row">
+            <label for="workjapanProfileMonth">Month</label>
+            <input type="month" id="workjapanProfileMonth" name="month" required>
+          </div>
+          <div class="entry-grid">
+            <div class="entry-field">
+              <label for="mobileNumberCollected">Mobile number collected</label>
+              <input type="number" id="mobileNumberCollected" min="0" placeholder="0">
+            </div>
+            <div class="entry-field">
+              <label for="registeredVisaCorrected">Registered visa corrected</label>
+              <input type="number" id="registeredVisaCorrected" min="0" placeholder="0">
+            </div>
+            <div class="entry-field">
+              <label for="registeredStationNameCorrected">Registered station name corrected</label>
+              <input type="number" id="registeredStationNameCorrected" min="0" placeholder="0">
+            </div>
+            <div class="entry-field">
+              <label for="registeredAgeCollected">Registered age collected</label>
+              <input type="number" id="registeredAgeCollected" min="0" placeholder="0">
+            </div>
+            <div class="entry-field">
+              <label for="jpLevelCollected">JP level collected</label>
+              <input type="number" id="jpLevelCollected" min="0" placeholder="0">
+            </div>
+            <div class="entry-field">
+              <label for="rcUploaded">RC uploaded</label>
+              <input type="number" id="rcUploaded" min="0" placeholder="0">
+            </div>
+          </div>
+          <button type="submit" class="btn-primary btn-slot" id="workjapanProfileSaveBtn">Save Profile Steps</button>
         </form>
       </div>
 
@@ -586,7 +663,7 @@
 
     function initMonthInputs() {
       const val = defaultMonthValue();
-      ['platformMonth', 'applicantMonth', 'geoMonth', 'visaMonth', 'nationalityMonth', 'barriersMonth', 'socialChannelsMonth', 'brandMessageMonth', 'appDownloadsMonth', 'nyuulyCommitMonth', 'nyuulyResultMonth'].forEach((id) => {
+      ['platformMonth', 'applicantMonth', 'geoMonth', 'visaMonth', 'nationalityMonth', 'barriersMonth', 'socialChannelsMonth', 'brandMessageMonth', 'appDownloadsMonth', 'campaignsMonth', 'workjapanProfileMonth', 'nyuulyCommitMonth', 'nyuulyResultMonth'].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.value = val;
       });
@@ -664,15 +741,27 @@
       slot?.classList.toggle('upload-slot-done', info.uploaded);
     }
 
+    function updateCampaignsStatus(status) {
+      const info = status?.manualFiles?.campaigns || { uploaded: false };
+      const badge = document.getElementById('campaignsBadge');
+      const slot = document.getElementById('manualCampaignsSlot');
+      if (!badge) return;
+      badge.className = `slot-badge ${info.uploaded ? 'slot-badge-done' : 'slot-badge-pending'}`;
+      badge.textContent = info.uploaded ? `${info.rowsAdded || 0} saved` : 'No data';
+      slot?.classList.toggle('upload-slot-done', info.uploaded);
+    }
+
     function updateManualStatus(status) {
       updateSocialChannelsStatus(status);
       updateBrandMessageStatus(status);
       updateAppDownloadsStatus(status);
+      updateCampaignsStatus(status);
       updateNyuulyCommitStatus(status);
       updateNyuulyResultStatus(status);
       if (companySelect.value !== 'workjapan') return;
       const configs = [
         { type: 'platform', badgeId: 'platformBadge', metaId: 'platformMeta', slotId: 'manualPlatformSlot', label: 'platform rows' },
+        { type: 'workjapan-profile', badgeId: 'workjapanProfileBadge', metaId: null, slotId: 'manualWorkJapanProfileSlot', label: 'months' },
         { type: 'applicants', badgeId: 'applicantsBadge', metaId: 'applicantsMeta', slotId: 'manualApplicantsSlot', label: 'months' },
         { type: 'geo', badgeId: 'geoBadge', metaId: null, slotId: 'manualGeoSlot', label: 'months' },
         { type: 'visa', badgeId: 'visaBadge', metaId: null, slotId: 'manualVisaSlot', label: 'visa rows' },
@@ -1017,6 +1106,67 @@
       }
     }
 
+    async function loadWorkJapanProfileFormData() {
+      const month = document.getElementById('workjapanProfileMonth')?.value;
+      if (!month || companySelect.value !== 'workjapan') return;
+      const { start, end } = monthToRange(month);
+      const fields = [
+        'mobileNumberCollected', 'registeredVisaCorrected', 'registeredStationNameCorrected',
+        'registeredAgeCollected', 'jpLevelCollected', 'rcUploaded',
+      ];
+      fields.forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      try {
+        const res = await fetch(`/api/workjapan-profile-stats?company=workjapan&start=${start}&end=${end}`);
+        const data = await res.json();
+        const latest = data.latest || data.kpis;
+        if (!latest) return;
+        document.getElementById('mobileNumberCollected').value = latest.mobile_number_collected ?? latest.mobileNumberCollected ?? '';
+        document.getElementById('registeredVisaCorrected').value = latest.registered_visa_corrected ?? latest.registeredVisaCorrected ?? '';
+        document.getElementById('registeredStationNameCorrected').value = latest.registered_station_name_corrected ?? latest.registeredStationNameCorrected ?? '';
+        document.getElementById('registeredAgeCollected').value = latest.registered_age_collected ?? latest.registeredAgeCollected ?? '';
+        document.getElementById('jpLevelCollected').value = latest.jp_level_collected ?? latest.jpLevelCollected ?? '';
+        document.getElementById('rcUploaded').value = latest.rc_uploaded ?? latest.rcUploaded ?? '';
+      } catch (err) {
+        console.error('Failed to load profile step form data:', err);
+      }
+    }
+
+    async function handleWorkJapanProfileEntry(e) {
+      e.preventDefault();
+      const btn = document.getElementById('workjapanProfileSaveBtn');
+      const month = document.getElementById('workjapanProfileMonth').value;
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+      try {
+        const res = await fetch('/api/manual/workjapan-profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            company: 'workjapan',
+            month,
+            mobile_number_collected: document.getElementById('mobileNumberCollected').value,
+            registered_visa_corrected: document.getElementById('registeredVisaCorrected').value,
+            registered_station_name_corrected: document.getElementById('registeredStationNameCorrected').value,
+            registered_age_collected: document.getElementById('registeredAgeCollected').value,
+            jp_level_collected: document.getElementById('jpLevelCollected').value,
+            rc_uploaded: document.getElementById('rcUploaded').value,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Save failed');
+        showToast(`Saved profile steps for ${data.month}`, 'success');
+        loadStatus();
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save Profile Steps';
+      }
+    }
+
     async function handlePlatformEntry(e) {
       e.preventDefault();
       const btn = document.getElementById('platformSaveBtn');
@@ -1257,6 +1407,159 @@
       }
     }
 
+    const CAMPAIGN_TEMPLATES = {
+      workjapan: [
+        {
+          placement: 'Instagram + Facebook ads',
+          campaignType: 'Digital',
+          locationDetail: 'Geo: Vietnam, Nepal, Philippines · age 20-35 · job seeker interest',
+          utmOrPromo: 'UTM: ig_wj_jobs',
+          monthlyCost: '',
+          weeklyClicks: '',
+          weeklyResult: '',
+        },
+        {
+          placement: 'Google Search + Maps',
+          campaignType: 'Digital',
+          locationDetail: '"jobs in Japan" / "WORK JAPAN" keywords · Japan + SEA',
+          utmOrPromo: 'UTM: gs_wj',
+          monthlyCost: '',
+          weeklyClicks: '',
+          weeklyResult: '',
+        },
+        {
+          placement: 'YouTube pre-roll',
+          campaignType: 'Digital',
+          locationDetail: 'Japan + SEA geo · Hindi / English entertainment audiences',
+          utmOrPromo: 'UTM: yt_wj',
+          monthlyCost: '',
+          weeklyClicks: '',
+          weeklyResult: '',
+        },
+      ],
+      nyuuly: [
+        {
+          placement: 'Instagram + Facebook ads',
+          campaignType: 'Digital',
+          locationDetail: 'Geo: Vietnam, Philippines diaspora · planning Japan move',
+          utmOrPromo: 'UTM: ig_ny',
+          monthlyCost: '',
+          weeklyClicks: '',
+          weeklyResult: '',
+        },
+        {
+          placement: 'Google Search',
+          campaignType: 'Digital',
+          locationDetail: '"move to Japan" / "Nyuuly" / relocation keywords',
+          utmOrPromo: 'UTM: gs_ny',
+          monthlyCost: '',
+          weeklyClicks: '',
+          weeklyResult: '',
+        },
+        {
+          placement: 'TikTok ads',
+          campaignType: 'Digital',
+          locationDetail: 'Japan life / relocation content · English + Hindi audiences',
+          utmOrPromo: 'UTM: tt_ny',
+          monthlyCost: '',
+          weeklyClicks: '',
+          weeklyResult: '',
+        },
+      ],
+    };
+
+    function escAttr(val) {
+      return String(val ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    }
+
+    function campaignRowHtml(row = {}) {
+      return `
+        <tr class="campaign-row">
+          <td><input type="text" class="campaign-placement" value="${escAttr(row.placement)}" placeholder="e.g. Instagram + Facebook ads"></td>
+          <td><input type="text" class="campaign-type" value="${escAttr(row.campaignType)}" placeholder="Digital"></td>
+          <td><input type="text" class="campaign-location" value="${escAttr(row.locationDetail)}" placeholder="Geo / keywords / audience"></td>
+          <td><input type="text" class="campaign-utm" value="${escAttr(row.utmOrPromo)}" placeholder="UTM: ig_bkn"></td>
+          <td><input type="number" class="campaign-cost" min="0" step="0.01" value="${row.monthlyCost ?? ''}" placeholder="0"></td>
+          <td><input type="number" class="campaign-clicks" min="0" value="${row.weeklyClicks ?? ''}" placeholder="0"></td>
+          <td><input type="number" class="campaign-result" min="0" value="${row.weeklyResult ?? ''}" placeholder="0"></td>
+          <td><button type="button" class="btn-text campaign-remove-row" title="Remove row">✕</button></td>
+        </tr>
+      `;
+    }
+
+    function renderCampaignRows(rows) {
+      const tbody = document.getElementById('campaignRows');
+      if (!tbody) return;
+      const list = rows?.length ? rows : CAMPAIGN_TEMPLATES[companySelect.value] || CAMPAIGN_TEMPLATES.workjapan;
+      tbody.innerHTML = list.map((row) => campaignRowHtml(row)).join('');
+    }
+
+    function readCampaignRows() {
+      return [...document.querySelectorAll('#campaignRows .campaign-row')].map((row) => ({
+        placement: row.querySelector('.campaign-placement')?.value?.trim() || '',
+        campaignType: row.querySelector('.campaign-type')?.value?.trim() || '',
+        locationDetail: row.querySelector('.campaign-location')?.value?.trim() || '',
+        utmOrPromo: row.querySelector('.campaign-utm')?.value?.trim() || '',
+        monthlyCost: row.querySelector('.campaign-cost')?.value,
+        weeklyClicks: row.querySelector('.campaign-clicks')?.value,
+        weeklyResult: row.querySelector('.campaign-result')?.value,
+      })).filter((r) => r.placement || r.utmOrPromo);
+    }
+
+    async function loadCampaignFormData() {
+      const month = document.getElementById('campaignsMonth')?.value;
+      if (!month) return;
+      const { start, end } = monthToRange(month);
+      try {
+        const res = await fetch(`/api/campaigns?company=${companySelect.value}&start=${start}&end=${end}`);
+        const data = await res.json();
+        renderCampaignRows(data.rows?.length ? data.rows : null);
+      } catch (err) {
+        console.error('Failed to load campaign form data:', err);
+        renderCampaignRows(null);
+      }
+    }
+
+    async function handleCampaignEntry(e) {
+      e.preventDefault();
+      const btn = document.getElementById('campaignsSaveBtn');
+      const campaigns = readCampaignRows();
+      if (!campaigns.length) {
+        showToast('Add at least one campaign row with placement or UTM/promo code', 'error');
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+      try {
+        const data = await postManual('/api/manual/campaigns', {
+          month: document.getElementById('campaignsMonth').value,
+          campaigns,
+        });
+        showToast(`Saved ${data.rowsAdded} campaign row(s) for ${data.month}`);
+        await loadStatus();
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save Campaigns';
+      }
+    }
+
+    document.getElementById('addCampaignRow')?.addEventListener('click', () => {
+      document.getElementById('campaignRows')?.insertAdjacentHTML('beforeend', campaignRowHtml({}));
+    });
+
+    document.getElementById('campaignRows')?.addEventListener('click', (e) => {
+      if (e.target.classList.contains('campaign-remove-row')) {
+        const rows = document.querySelectorAll('#campaignRows .campaign-row');
+        if (rows.length <= 1) {
+          showToast('Keep at least one campaign row', 'error');
+          return;
+        }
+        e.target.closest('.campaign-row')?.remove();
+      }
+    });
+
     document.getElementById('addNationalityRow')?.addEventListener('click', () => {
       const tbody = document.getElementById('nationalityRows');
       const tr = document.createElement('tr');
@@ -1272,9 +1575,11 @@
       loadSocialChannelsFormData();
       loadBrandMessageFormData();
       loadAppDownloadsFormData();
+      loadCampaignFormData();
       if (companySelect.value === 'workjapan') {
         loadPlatformFormData();
         loadApplicantFormData();
+        loadWorkJapanProfileFormData();
       } else {
         loadNyuulyCommitFormData();
         loadNyuulyResultFormData();
@@ -1287,11 +1592,15 @@
     document.getElementById('brandMessageEntryForm').addEventListener('submit', handleBrandMessageEntry);
     document.getElementById('appDownloadsMonth').addEventListener('change', loadAppDownloadsFormData);
     document.getElementById('appDownloadsEntryForm').addEventListener('submit', handleAppDownloadsEntry);
+    document.getElementById('campaignsMonth').addEventListener('change', loadCampaignFormData);
+    document.getElementById('campaignsEntryForm').addEventListener('submit', handleCampaignEntry);
     document.getElementById('nyuulyCommitMonth')?.addEventListener('change', loadNyuulyCommitFormData);
     document.getElementById('nyuulyCommitEntryForm')?.addEventListener('submit', handleNyuulyCommitEntry);
     document.getElementById('nyuulyResultMonth')?.addEventListener('change', loadNyuulyResultFormData);
     document.getElementById('nyuulyResultEntryForm')?.addEventListener('submit', handleNyuulyResultEntry);
     document.getElementById('platformMonth').addEventListener('change', loadPlatformFormData);
+    document.getElementById('workjapanProfileMonth')?.addEventListener('change', loadWorkJapanProfileFormData);
+    document.getElementById('workjapanProfileEntryForm')?.addEventListener('submit', handleWorkJapanProfileEntry);
     document.getElementById('applicantMonth').addEventListener('change', loadApplicantFormData);
     document.getElementById('platformEntryForm').addEventListener('submit', handlePlatformEntry);
     document.getElementById('applicantsEntryForm').addEventListener('submit', handleApplicantEntry);
@@ -1309,7 +1618,9 @@
     loadSocialChannelsFormData();
     loadBrandMessageFormData();
     loadAppDownloadsFormData();
+    loadCampaignFormData();
     loadPlatformFormData();
+    loadWorkJapanProfileFormData();
     loadApplicantFormData();
     loadNyuulyCommitFormData();
     loadNyuulyResultFormData();
