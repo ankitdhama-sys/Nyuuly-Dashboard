@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Weekly Meeting Brief — Analytics Dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="weekly-page">
+  <nav class="nav">
+    <div class="nav-brand">Analytics Dashboard</div>
+    <div class="nav-links">
+      <a href="/">Dashboard</a>
+      <a href="/combined">Combined Funnel</a>
+      <a href="/campaigns">Campaigns</a>
+      <a href="/weekly" class="active">Weekly Brief</a>
+      <a href="/upload">Upload Data</a>
+      <span class="nav-updated" id="lastUpdated">Last updated: —</span>
+    </div>
+  </nav>
+
+  <div class="controls weekly-controls">
+    <select id="monthSelect" class="month-select"></select>
+    <div class="filter-label" id="filterLabel">Loading…</div>
+    <button type="button" class="btn-secondary weekly-print-btn" id="printBriefBtn">Print / PDF</button>
+  </div>
+
+  <main class="main weekly-main">
+    <header class="weekly-header">
+      <h1 class="weekly-title">Weekly Meeting Brief</h1>
+      <p class="weekly-intro" id="weeklyIntro">Month-over-month KPI highlights for WORK JAPAN and Nyuuly — top declines to address and top gains to celebrate.</p>
+    </header>
+
+    <section class="weekly-section weekly-section-attention">
+      <h2 class="weekly-section-title">Needs attention — biggest declines vs last month</h2>
+      <p class="weekly-section-hint">Top 5 worst-performing KPIs per business. Review these first in the meeting.</p>
+      <div id="weeklyWorst"></div>
+    </section>
+
+    <section class="weekly-section weekly-section-wins">
+      <h2 class="weekly-section-title">What's improving — biggest gains vs last month</h2>
+      <p class="weekly-section-hint">Top 5 best-performing KPIs per business compared to the previous month.</p>
+      <div id="weeklyBest"></div>
+    </section>
+  </main>
+
+  <script src="/weekly.js"></script>
+</body>
+</html>

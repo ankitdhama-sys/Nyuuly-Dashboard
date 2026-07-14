@@ -2099,6 +2099,126 @@ function buildCombinedFunnelData(monthKey) {
   };
 }
 
+const WEEKLY_BRIEF_KPI_CATALOG = [
+  { key: 'socialChannelViews', label: 'Social channel views', companies: ['workjapan', 'nyuuly'], anchor: 'section-social', stage: 'Awareness' },
+  { key: 'gscImpressions', label: 'Google search impressions', companies: ['workjapan', 'nyuuly'], anchor: 'section-gsc-awareness', stage: 'Awareness' },
+  { key: 'gscClicks', label: 'Organic search clicks', companies: ['workjapan', 'nyuuly'], anchor: 'section-gsc-awareness', stage: 'Awareness' },
+  { key: 'postCount', label: 'Social CSV posts', companies: ['workjapan', 'nyuuly'], anchor: 'section-social', stage: 'Awareness' },
+  { key: 'totalUsers', label: 'Total website users', companies: ['workjapan', 'nyuuly'], anchor: 'section-users', stage: 'Consideration' },
+  { key: 'newUsers', label: 'New website users', companies: ['workjapan', 'nyuuly'], anchor: 'section-users', stage: 'Consideration' },
+  { key: 'pageViews', label: 'Page views', companies: ['workjapan', 'nyuuly'], anchor: 'section-pages', stage: 'Consideration' },
+  { key: 'pageActiveUsers', label: 'Page active users', companies: ['workjapan', 'nyuuly'], anchor: 'section-pages', stage: 'Consideration' },
+  { key: 'appDownloads', label: 'App store downloads', companies: ['nyuuly'], anchor: 'considerationAudience', stage: 'Consideration' },
+  { key: 'registrations', label: 'Platform registrations', companies: ['workjapan'], anchor: 'section-platform', stage: 'Commit' },
+  { key: 'platformActiveUsers', label: 'Platform active users', companies: ['workjapan'], anchor: 'section-platform', stage: 'Commit' },
+  { key: 'mobileNumberCollected', label: 'Mobile number collected', companies: ['workjapan'], anchor: 'section-workjapan-profile', stage: 'Commit' },
+  { key: 'registeredVisaCorrected', label: 'Registered visa corrected', companies: ['workjapan'], anchor: 'section-workjapan-profile', stage: 'Commit' },
+  { key: 'registeredStationNameCorrected', label: 'Registered station name corrected', companies: ['workjapan'], anchor: 'section-workjapan-profile', stage: 'Commit' },
+  { key: 'registeredAgeCollected', label: 'Registered age collected', companies: ['workjapan'], anchor: 'section-workjapan-profile', stage: 'Commit' },
+  { key: 'jpLevelCollected', label: 'JP level collected', companies: ['workjapan'], anchor: 'section-workjapan-profile', stage: 'Commit' },
+  { key: 'rcUploaded', label: 'RC uploaded', companies: ['workjapan'], anchor: 'section-workjapan-profile', stage: 'Commit' },
+  { key: 'totalApplications', label: 'Total applications', companies: ['workjapan'], anchor: 'section-applicants-proceed', stage: 'Proceed' },
+  { key: 'uniqueApplicants', label: 'Unique applicants', companies: ['workjapan'], anchor: 'section-applicants-proceed', stage: 'Proceed' },
+  { key: 'screeningPasses', label: 'Screening passes', companies: ['workjapan'], anchor: 'section-applicants-result', stage: 'Result' },
+  { key: 'interviewsFixed', label: 'Interviews fixed', companies: ['workjapan'], anchor: 'section-applicants-result', stage: 'Result' },
+  { key: 'selected', label: 'Applicants selected', companies: ['workjapan'], anchor: 'section-applicants-result', stage: 'Result' },
+  { key: 'nyuulySubscribe', label: 'Nyuuly Subscribe', companies: ['nyuuly'], anchor: 'section-nyuuly-commit', stage: 'Commit' },
+  { key: 'compassStarted', label: 'Compass started', companies: ['nyuuly'], anchor: 'section-nyuuly-commit', stage: 'Commit' },
+  { key: 'mobileSimPurchased', label: 'Mobile Sim purchased', companies: ['nyuuly'], anchor: 'section-nyuuly-result', stage: 'Result' },
+  { key: 'welcomePackagePurchased', label: 'Welcome package purchased', companies: ['nyuuly'], anchor: 'section-nyuuly-result', stage: 'Result' },
+  { key: 'formFilled', label: 'Form filled', companies: ['nyuuly'], anchor: 'section-nyuuly-result', stage: 'Result' },
+  { key: 'askMeRequest', label: 'Ask me request', companies: ['nyuuly'], anchor: 'section-nyuuly-result', stage: 'Result' },
+  { key: 'mobileSimApply', label: 'Mobile Sim — Apply', companies: ['nyuuly'], anchor: 'section-nyuuly-proceed', stage: 'Proceed (Uses)' },
+];
+
+function formatBriefNum(n) {
+  if (n == null) return '0';
+  const num = Number(n);
+  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
+  if (num >= 10_000) return `${(num / 1000).toFixed(1)}K`;
+  return num.toLocaleString('en-US');
+}
+
+function buildWeeklyBriefMetric(company, monthKey, prevMonthLabel, catalogEntry, metric) {
+  if (!metric || metric.deltaPct == null) return null;
+  if ((metric.value || 0) === 0 && (metric.prevValue || 0) === 0) return null;
+
+  const delta = metric.deltaPct;
+  const isUp = delta > 0;
+  const absPct = Math.abs(delta).toFixed(1);
+  const dashboardUrl = `/?company=${company}&month=${monthKey}#${catalogEntry.anchor}`;
+
+  const summary = isUp
+    ? `${catalogEntry.label} increased from ${formatBriefNum(metric.prevValue)} to ${formatBriefNum(metric.value)} (+${absPct}% vs ${prevMonthLabel}). Strong performance in the ${catalogEntry.stage} stage — keep doing what's working.`
+    : `${catalogEntry.label} fell from ${formatBriefNum(metric.prevValue)} to ${formatBriefNum(metric.value)} (−${absPct}% vs ${prevMonthLabel}). This decline in the ${catalogEntry.stage} stage should be reviewed in the weekly meeting.`;
+
+  return {
+    key: catalogEntry.key,
+    label: catalogEntry.label,
+    stage: catalogEntry.stage,
+    value: metric.value,
+    prevValue: metric.prevValue,
+    deltaPct: delta,
+    direction: isUp ? 'up' : 'down',
+    summary,
+    dashboardUrl,
+  };
+}
+
+function buildWeeklyBriefForCompany(company, monthKey, prevMonthKey, prevMonthLabel) {
+  const current = monthlyKpisForMonth(company, monthKey);
+  const previous = prevMonthKey ? monthlyKpisForMonth(company, prevMonthKey) : null;
+
+  const kpisMap = {};
+  for (const key of Object.keys(current)) {
+    const value = current[key] || 0;
+    const prevValue = previous ? (previous[key] || 0) : null;
+    kpisMap[key] = { value, prevValue, deltaPct: deltaPct(value, prevValue) };
+  }
+
+  if (company === 'nyuuly') {
+    const apply = getMobileSimFlowForMonth(company, monthKey).steps.find((s) => s.key === 'apply')?.activeUsers || 0;
+    const prevApply = prevMonthKey
+      ? (getMobileSimFlowForMonth(company, prevMonthKey).steps.find((s) => s.key === 'apply')?.activeUsers || 0)
+      : null;
+    kpisMap.mobileSimApply = { value: apply, prevValue: prevApply, deltaPct: deltaPct(apply, prevApply) };
+  }
+
+  const catalog = WEEKLY_BRIEF_KPI_CATALOG.filter((c) => c.companies.includes(company));
+  const scored = catalog
+    .map((c) => buildWeeklyBriefMetric(company, monthKey, prevMonthLabel, c, kpisMap[c.key]))
+    .filter(Boolean);
+
+  return {
+    worst: scored.filter((m) => m.deltaPct < 0).sort((a, b) => a.deltaPct - b.deltaPct).slice(0, 5),
+    best: scored.filter((m) => m.deltaPct > 0).sort((a, b) => b.deltaPct - a.deltaPct).slice(0, 5),
+  };
+}
+
+function buildWeeklyBriefCompanyBlock(company, requestedMonth) {
+  const months = getAvailableMonths(company);
+  const month = requestedMonth && months.includes(requestedMonth)
+    ? requestedMonth
+    : getDefaultMonthKey(company, months);
+  if (!month) return null;
+
+  const idx = months.indexOf(month);
+  const prevMonth = idx > 0 ? months[idx - 1] : null;
+  const prevMonthLabel = prevMonth ? monthKeyLabel(prevMonth) : 'the prior month';
+  const { worst, best } = buildWeeklyBriefForCompany(company, month, prevMonth, prevMonthLabel);
+
+  return {
+    company,
+    companyLabel: company === 'nyuuly' ? 'Nyuuly' : 'WORK JAPAN',
+    month,
+    monthLabel: monthKeyLabel(month),
+    prevMonth,
+    prevMonthLabel,
+    worst,
+    best,
+  };
+}
+
 // --- Routes ---
 
 app.get('/upload', (req, res) => {
@@ -2111,6 +2231,10 @@ app.get('/combined', (req, res) => {
 
 app.get('/campaigns', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'campaigns.html'));
+});
+
+app.get('/weekly', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'weekly.html'));
 });
 
 app.post('/api/upload', uploadLimiter, upload.single('file'), (req, res) => {
@@ -3499,6 +3623,24 @@ app.get('/api/monthly', (req, res) => {
     kpis,
     months: months.map((key) => ({ key, label: monthKeyLabel(key) })),
     filter: { company, month },
+  });
+});
+
+app.get('/api/weekly-brief', (req, res) => {
+  const requestedMonth = req.query.month || null;
+  const wjMonths = getAvailableMonths('workjapan');
+  const nyMonths = getAvailableMonths('nyuuly');
+  const monthSet = new Set([...wjMonths, ...nyMonths]);
+  const months = [...monthSet].sort();
+
+  const workjapan = buildWeeklyBriefCompanyBlock('workjapan', requestedMonth);
+  const nyuuly = buildWeeklyBriefCompanyBlock('nyuuly', requestedMonth);
+
+  res.json({
+    month: requestedMonth || workjapan?.month || nyuuly?.month || null,
+    months: months.map((key) => ({ key, label: monthKeyLabel(key) })),
+    workjapan,
+    nyuuly,
   });
 });
 

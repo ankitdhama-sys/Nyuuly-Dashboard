@@ -355,17 +355,8 @@ function getDropOffContext(step) {
   return CONSIDERATION_DROP_CONTEXT[step.path] || CONSIDERATION_DROP_CONTEXT.default;
 }
 
-const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-function parseUploadDate(raw, year, month) {
-  if (!raw) return `${year}-${String(month).padStart(2, '0')}-01`;
-  const s = String(raw).slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  return `${year}-${String(month).padStart(2, '0')}-01`;
-}
-
 /**
- * Latest manual platform upload — registrations are month-to-date from the 1st through upload day.
+ * Latest manual platform upload — registrations are full calendar-month totals.
  */
 function buildRegistrationSnapshot(platformRows) {
   if (!platformRows?.length) return null;
@@ -384,11 +375,8 @@ function buildRegistrationSnapshot(platformRows) {
 
   const sorted = Object.values(byMonth).sort((a, b) => (a.year * 12 + a.month) - (b.year * 12 + b.month));
   const latest = sorted[sorted.length - 1];
-  const uploadDateStr = parseUploadDate(latest.uploadDate, latest.year, latest.month);
-  const [, , ud] = uploadDateStr.split('-').map(Number);
-  const daysInPeriod = ud;
   const daysInMonth = new Date(latest.year, latest.month, 0).getDate();
-  const monthShort = MONTH_SHORT[latest.month - 1] || String(latest.month);
+  const monthEnd = `${latest.year}-${String(latest.month).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`;
 
   const byPlatform = latest.rows.map((row) => ({
     platform: row.platform,
@@ -403,13 +391,12 @@ function buildRegistrationSnapshot(platformRows) {
   return {
     monthLabel: latest.month_label,
     periodStart: `${latest.year}-${String(latest.month).padStart(2, '0')}-01`,
-    periodEnd: uploadDateStr,
-    daysInPeriod,
+    periodEnd: monthEnd,
+    daysInPeriod: daysInMonth,
     daysInMonth,
-    periodLabel: `1 ${monthShort} – ${ud} ${monthShort} ${latest.year}`,
-    periodNote: `Registrations are counted from the 1st of the month through the day you saved on the upload page (${daysInPeriod} day${daysInPeriod !== 1 ? 's' : ''} of data).`,
-    uploadDate: uploadDateStr,
-    isPartialMonth: daysInPeriod < daysInMonth,
+    periodNote: 'Registrations and active users are full calendar-month totals from manual entry.',
+    uploadDate: latest.uploadDate,
+    isPartialMonth: false,
     webRegistrations: web.registrations,
     webActiveUsers: web.active_users,
     totalRegistrations,

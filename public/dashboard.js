@@ -1315,7 +1315,7 @@ function renderChartNyuulyResult(history) {
 
 function renderCommitRegistrationBlockShell(registrations) {
   const periodHint = registrations
-    ? `<strong>${registrations.monthLabel}</strong> · ${registrations.periodLabel}${registrations.isPartialMonth ? ` · <span class="partial-month-badge">Partial month (${registrations.daysInPeriod} of ${registrations.daysInMonth} days)</span>` : ''}`
+    ? `<strong>${registrations.monthLabel}</strong>`
     : 'Enter platform registrations and applicant stats on the <a href="/upload">upload page</a>.';
 
   return `
@@ -2762,15 +2762,38 @@ function initControls() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  const saved = sessionStorage.getItem('analyticsCompany');
-  if (saved === 'nyuuly' || saved === 'workjapan') {
+  const params = new URLSearchParams(window.location.search);
+  const urlCompany = params.get('company');
+  const urlMonth = params.get('month');
+  const urlHash = window.location.hash;
+
+  if (urlCompany === 'nyuuly' || urlCompany === 'workjapan') {
+    sessionStorage.setItem('analyticsCompany', urlCompany);
     document.querySelectorAll('#companyTabs .tab-btn').forEach((b) => {
-      b.classList.toggle('active', b.dataset.company === saved);
+      b.classList.toggle('active', b.dataset.company === urlCompany);
     });
+  } else {
+    const saved = sessionStorage.getItem('analyticsCompany');
+    if (saved === 'nyuuly' || saved === 'workjapan') {
+      document.querySelectorAll('#companyTabs .tab-btn').forEach((b) => {
+        b.classList.toggle('active', b.dataset.company === saved);
+      });
+    }
   }
   syncStateFromUI();
   initControls();
   loadLastUpdated();
-  await loadAvailableMonths(true);
-  loadDashboard();
+  await loadAvailableMonths(!urlMonth);
+  if (urlMonth && state.availableMonths.some((m) => m.key === urlMonth)) {
+    state.month = urlMonth;
+    const sel = document.getElementById('monthSelect');
+    if (sel) sel.value = urlMonth;
+  }
+  await loadDashboard();
+  if (urlHash) {
+    setTimeout(() => {
+      const target = document.querySelector(urlHash);
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 400);
+  }
 });
