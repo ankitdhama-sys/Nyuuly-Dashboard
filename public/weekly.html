@@ -8,14 +8,18 @@
 </head>
 <body class="weekly-page">
   <nav class="nav">
-    <div class="nav-brand">Analytics Dashboard</div>
-    <div class="nav-links">
-      <a href="/">Dashboard</a>
-      <a href="/combined">Combined Funnel</a>
-      <a href="/campaigns">Campaigns</a>
-      <a href="/weekly" class="active">Weekly Brief</a>
-      <a href="/upload">Upload Data</a>
-      <span class="nav-updated" id="lastUpdated">Last updated: —</span>
+    <a href="/weekly" class="nav-brand">Analytics Dashboard</a>
+    <div class="nav-main">
+      <div class="nav-pills" aria-label="Primary navigation">
+        <a href="/weekly" class="nav-pill active">Weekly Brief</a>
+        <a href="/combined" class="nav-pill">Combined</a>
+        <a href="/" class="nav-pill">Dashboard</a>
+        <a href="/campaigns" class="nav-pill">Campaigns</a>
+      </div>
+      <div class="nav-actions">
+        <a href="/upload" class="nav-pill nav-pill-upload">Upload</a>
+        <span class="nav-updated" id="lastUpdated">Last updated: —</span>
+      </div>
     </div>
   </nav>
 
@@ -44,6 +48,7 @@
     </section>
   </main>
 
+  <script src="/onboarding-tour.js"></script>
   <script src="/weekly.js"></script>
 </body>
 </html>

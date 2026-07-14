@@ -8,13 +8,17 @@
 </head>
 <body>
   <nav class="nav">
-    <div class="nav-brand">Analytics Dashboard</div>
-    <div class="nav-links">
-      <a href="/">Dashboard</a>
-      <a href="/combined">Combined Funnel</a>
-      <a href="/campaigns">Campaigns</a>
-      <a href="/weekly">Weekly Brief</a>
-      <a href="/upload" class="active">Upload Data</a>
+    <a href="/weekly" class="nav-brand">Analytics Dashboard</a>
+    <div class="nav-main">
+      <div class="nav-pills" aria-label="Primary navigation">
+        <a href="/weekly" class="nav-pill">Weekly Brief</a>
+        <a href="/combined" class="nav-pill">Combined</a>
+        <a href="/" class="nav-pill">Dashboard</a>
+        <a href="/campaigns" class="nav-pill">Campaigns</a>
+      </div>
+      <div class="nav-actions">
+        <a href="/upload" class="nav-pill nav-pill-upload active">Upload</a>
+      </div>
     </div>
   </nav>
 
@@ -471,6 +475,7 @@
 
   <div class="toast-container" id="toastContainer"></div>
 
+  <script src="/onboarding-tour.js"></script>
   <script>
     const SLOTS = [
       {
