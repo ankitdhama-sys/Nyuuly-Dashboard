@@ -45,6 +45,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 }
 
 initDb();
+ensureSharedDataCoverage();
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -2884,10 +2885,35 @@ app.get('/api/data-coverage', (req, res) => {
   }
 });
 
+function upsertDataCoverage(company, dataThroughDate) {
+  db.prepare(`
+    INSERT INTO company_data_coverage (company, data_through_date, updated_at)
+    VALUES (?, ?, datetime('now'))
+    ON CONFLICT(company) DO UPDATE SET
+      data_through_date = excluded.data_through_date,
+      updated_at = datetime('now')
+  `).run(company, dataThroughDate);
+}
+
+/** Keep Nyuuly and WORK JAPAN in sync when only one company has a date. */
+function ensureSharedDataCoverage() {
+  const rows = db.prepare(`
+    SELECT company, data_through_date FROM company_data_coverage
+  `).all();
+  const byCo = Object.fromEntries(rows.map((r) => [r.company, r.data_through_date]));
+  if (byCo.workjapan && !byCo.nyuuly) upsertDataCoverage('nyuuly', byCo.workjapan);
+  if (byCo.nyuuly && !byCo.workjapan) upsertDataCoverage('workjapan', byCo.nyuuly);
+}
+
 app.post('/api/manual/data-coverage', uploadLimiter, (req, res) => {
   try {
     const { company, dataThroughDate } = req.body;
-    if (!company || !['workjapan', 'nyuuly'].includes(company)) {
+    // Default: apply to both companies so same-period MoM works for Nyuuly and WORK JAPAN.
+    const applyToBoth = req.body.applyToBoth !== false;
+    if (company && !['workjapan', 'nyuuly'].includes(company)) {
+      return res.status(400).json({ error: 'Valid company is required' });
+    }
+    if (!applyToBoth && !company) {
       return res.status(400).json({ error: 'Valid company is required' });
     }
     if (!dataThroughDate || !/^\d{4}-\d{2}-\d{2}$/.test(dataThroughDate)) {
@@ -2899,19 +2925,16 @@ app.post('/api/manual/data-coverage', uploadLimiter, (req, res) => {
       return res.status(400).json({ error: 'Invalid date' });
     }
 
-    db.prepare(`
-      INSERT INTO company_data_coverage (company, data_through_date, updated_at)
-      VALUES (?, ?, datetime('now'))
-      ON CONFLICT(company) DO UPDATE SET
-        data_through_date = excluded.data_through_date,
-        updated_at = datetime('now')
-    `).run(company, dataThroughDate);
+    const targets = applyToBoth ? ['workjapan', 'nyuuly'] : [company];
+    for (const co of targets) upsertDataCoverage(co, dataThroughDate);
 
     const monthKey = monthKeyFromDate(parsed);
-    const meta = getDataCoverageMeta(company, monthKey);
+    const primary = company || 'workjapan';
+    const meta = getDataCoverageMeta(primary, monthKey);
     res.json({
       success: true,
-      company,
+      company: primary,
+      companies: targets,
       dataThroughDate,
       monthKey,
       label: meta?.label ?? null,

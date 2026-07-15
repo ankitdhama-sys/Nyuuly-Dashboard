@@ -35,13 +35,15 @@
     try {
       const res = await fetch('/api/data-coverage');
       const data = await res.json();
-      const parts = [];
-      for (const co of ['workjapan', 'nyuuly']) {
-        const row = data[co];
-        if (row?.dataThroughDate) {
-          parts.push(`${companyLabel(co)} ${formatThroughDate(row.dataThroughDate)}`);
-        }
+      const wj = data.workjapan?.dataThroughDate || null;
+      const ny = data.nyuuly?.dataThroughDate || null;
+      if (wj && ny && wj === ny) {
+        setNavText(`Data through: ${formatThroughDate(wj)}`);
+        return;
       }
+      const parts = [];
+      if (wj) parts.push(`${companyLabel('workjapan')} ${formatThroughDate(wj)}`);
+      if (ny) parts.push(`${companyLabel('nyuuly')} ${formatThroughDate(ny)}`);
       setNavText(parts.length ? `Data through: ${parts.join(' · ')}` : 'Data through: —');
     } catch (_) {
       setNavText('Data through: —');

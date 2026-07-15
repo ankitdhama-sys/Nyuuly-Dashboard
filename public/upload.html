@@ -37,7 +37,7 @@
 
       <div class="upload-coverage-card" id="dataCoverageCard">
         <h3>Data through date</h3>
-        <p class="slot-meta slot-meta-muted">Set how far into the current month your uploaded totals go. The dashboard will show an extra growth badge comparing the same number of days against last month (e.g. Jul 1–15 vs an equivalent half of June).</p>
+        <p class="slot-meta slot-meta-muted">Set how far into the current month your uploaded totals go. This date applies to <strong>both Nyuuly and WORK JAPAN</strong>. Dashboards show an extra same-period growth badge (e.g. Jul 1–15 vs the equivalent days in June).</p>
         <form class="entry-form coverage-form" id="dataCoverageForm">
           <div class="entry-form-row coverage-form-row">
             <label for="dataThroughDate">Through date</label>
@@ -705,13 +705,19 @@
       const metaEl = document.getElementById('dataCoverageMeta');
       const dateEl = document.getElementById('dataThroughDate');
       try {
-        const res = await fetch(`/api/data-coverage?company=${companySelect.value}`);
-        const data = await res.json();
+        // Prefer selected company; fall back to the other if only one is set.
+        let res = await fetch(`/api/data-coverage?company=${companySelect.value}`);
+        let data = await res.json();
+        if (!data.dataThroughDate) {
+          const other = companySelect.value === 'nyuuly' ? 'workjapan' : 'nyuuly';
+          res = await fetch(`/api/data-coverage?company=${other}`);
+          data = await res.json();
+        }
         if (data.dataThroughDate) {
           dateEl.value = data.dataThroughDate;
           metaEl.textContent = data.label
-            ? `Saved: ${data.dataThroughDate} · ${data.label}`
-            : `Saved: ${data.dataThroughDate}`;
+            ? `Saved for Nyuuly & WORK JAPAN: ${data.dataThroughDate} · ${data.label}`
+            : `Saved for Nyuuly & WORK JAPAN: ${data.dataThroughDate}`;
         } else {
           dateEl.value = '';
           metaEl.textContent = 'Not set — full-month comparison only.';
@@ -732,11 +738,15 @@
         const res = await fetch('/api/manual/data-coverage', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ company: companySelect.value, dataThroughDate: date }),
+          body: JSON.stringify({
+            company: companySelect.value,
+            dataThroughDate: date,
+            applyToBoth: true,
+          }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Save failed');
-        showToast(`Data through date saved for ${formatCompany(companySelect.value)}`, 'success');
+        showToast('Data through date saved for Nyuuly and WORK JAPAN', 'success');
         await loadDataCoverage();
       } catch (err) {
         showToast(err.message, 'error');
