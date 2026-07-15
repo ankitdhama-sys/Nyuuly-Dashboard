@@ -328,6 +328,12 @@ function initDb() {
       upload_date TEXT DEFAULT (date('now')),
       UNIQUE(company, month_label)
     );
+
+    CREATE TABLE IF NOT EXISTS company_data_coverage (
+      company TEXT PRIMARY KEY,
+      data_through_date TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
   `);
 }
 

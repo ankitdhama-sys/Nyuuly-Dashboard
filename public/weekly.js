@@ -11,9 +11,11 @@ function renderCompanyBlock(companyData, type) {
   }
 
   const items = type === 'worst' ? companyData.worst : companyData.best;
-  const periodLine = companyData.prevMonthLabel
-    ? `${companyData.monthLabel} compared to ${companyData.prevMonthLabel}`
-    : companyData.monthLabel;
+  const periodLine = companyData.dataCoverage?.label
+    ? `${companyData.monthLabel} · ${companyData.dataCoverage.label}`
+    : companyData.prevMonthLabel
+      ? `${companyData.monthLabel} compared to ${companyData.prevMonthLabel}`
+      : companyData.monthLabel;
 
   if (!items?.length) {
     return `
@@ -30,17 +32,23 @@ function renderCompanyBlock(companyData, type) {
       <h3 class="weekly-company-name weekly-company-${companyData.company}">${companyData.companyLabel}</h3>
       <p class="weekly-company-period">${periodLine}</p>
       <ul class="weekly-brief-list">
-        ${items.map((item) => `
+        ${items.map((item) => {
+          const pct = item.displayDeltaPct ?? item.deltaPct;
+          const proratedNote = item.compareMode === 'prorated'
+            ? ' <span class="weekly-brief-compare-tag">same period</span>'
+            : '';
+          return `
           <li class="weekly-brief-item weekly-brief-item-${item.direction}">
             <div class="weekly-brief-text">
               <span class="weekly-brief-pct weekly-brief-pct-${item.direction}">
-                ${item.direction === 'down' ? '▼' : '▲'} ${Math.abs(item.deltaPct).toFixed(1)}%
+                ${item.direction === 'down' ? '▼' : '▲'} ${Math.abs(pct).toFixed(1)}%${proratedNote}
               </span>
               <p>${item.summary}</p>
             </div>
             <a href="${item.dashboardUrl}" class="btn-secondary weekly-detail-btn">View details</a>
           </li>
-        `).join('')}
+        `;
+        }).join('')}
       </ul>
     </div>
   `;
@@ -116,6 +124,7 @@ async function loadLastUpdated() {
 
 document.addEventListener('DOMContentLoaded', async () => {
   loadLastUpdated();
+  if (typeof loadNavDataCoverageAll === 'function') loadNavDataCoverageAll();
   await loadMonths();
   await loadBrief();
 

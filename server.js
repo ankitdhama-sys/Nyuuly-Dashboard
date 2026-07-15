@@ -407,14 +407,19 @@ function getSearchConsolePayload(company, start, end) {
   `).all(...params);
 
   const daily = rows.filter((r) => r.dimension_type === 'daily').sort((a, b) => a.dimension_value.localeCompare(b.dimension_value));
+  const monthKey = start?.slice(0, 7);
+  const coverageMeta = monthKey ? getDataCoverageMeta(company, monthKey) : null;
+  const dailyForKpis = coverageMeta?.applies
+    ? filterGscDailyRows(daily, monthKey, coverageMeta.dataThroughDate)
+    : daily;
   const topQueries = rows.filter((r) => r.dimension_type === 'query').sort((a, b) => b.clicks - a.clicks).slice(0, 15)
     .map(normalizeGscStatRow);
   const topPages = rows.filter((r) => r.dimension_type === 'page').sort((a, b) => b.clicks - a.clicks).slice(0, 15)
     .map(normalizeGscStatRow);
 
   return {
-    kpis: gscKpisFromRows(daily),
-    daily,
+    kpis: gscKpisFromRows(dailyForKpis),
+    daily: dailyForKpis,
     topQueries,
     topPages,
     hasData: rows.length > 0,
@@ -887,39 +892,284 @@ function deltaPct(value, prevValue) {
   return Math.round(((value - prevValue) / prevValue) * 1000) / 10;
 }
 
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function parseIsoDateLocal(iso) {
+  const [y, m, d] = String(iso).split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function monthKeyFromDate(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function proratePrevMonth(prevFullValue, asOfDate) {
+  if (prevFullValue == null || !asOfDate) return null;
+  const day = asOfDate.getDate();
+  const daysInPrev = new Date(asOfDate.getFullYear(), asOfDate.getMonth(), 0).getDate();
+  const ratio = Math.min(day, daysInPrev) / daysInPrev;
+  return prevFullValue * ratio;
+}
+
+function getDataCoverageRow(company) {
+  return db.prepare(`
+    SELECT company, data_through_date, updated_at
+    FROM company_data_coverage
+    WHERE company = ?
+  `).get(company);
+}
+
+function getDataCoverageMeta(company, monthKey) {
+  const row = getDataCoverageRow(company);
+  if (!row?.data_through_date) return null;
+
+  const asOfDate = parseIsoDateLocal(row.data_through_date);
+  const coverageMonthKey = monthKeyFromDate(asOfDate);
+  const daysInMonth = new Date(asOfDate.getFullYear(), asOfDate.getMonth() + 1, 0).getDate();
+  const day = asOfDate.getDate();
+  const daysInPrevMonth = new Date(asOfDate.getFullYear(), asOfDate.getMonth(), 0).getDate();
+  const ratio = Math.min(day, daysInPrevMonth) / daysInPrevMonth;
+  const isFullMonth = day >= daysInMonth;
+  const prevMonthDate = new Date(asOfDate.getFullYear(), asOfDate.getMonth() - 1, 1);
+  const prevEndDay = Math.min(day, daysInPrevMonth);
+
+  const label = `${MONTH_SHORT[asOfDate.getMonth()]} 1–${day} vs ${MONTH_SHORT[prevMonthDate.getMonth()]} 1–${prevEndDay} equivalent`;
+
+  return {
+    company,
+    dataThroughDate: row.data_through_date,
+    monthKey: coverageMonthKey,
+    dayOfMonth: day,
+    daysInPrevMonth,
+    ratio,
+    isFullMonth,
+    applies: coverageMonthKey === monthKey && !isFullMonth,
+    label,
+    asOfDate,
+    updatedAt: row.updated_at,
+  };
+}
+
+/** KPIs where prorated MoM does not apply (rates, averages, positions). */
+const PRORATION_EXCLUDED_KEYS = new Set([
+  'gscAvgPosition',
+  'gscCtr',
+  'funnelCompletion',
+  'newUserRate',
+  'avgEngagementTime',
+]);
+
+/**
+ * Dated source rows — current month is clipped to data-through; prior month uses
+ * the same calendar days when available (else day/daysInPrev ratio).
+ */
+const DAILY_PARTIAL_PREV_KEYS = new Set([
+  'gscClicks',
+  'gscImpressions',
+  'totalUsers',
+  'newUsers',
+  'returningUsers',
+  'pageViews',
+  'pageActiveUsers',
+  'funnelActiveUsers',
+  'socialViews',
+  'socialReach',
+  'socialEngagement',
+  'postCount',
+]);
+
+/**
+ * Manual whole-month entries. When a data-through date applies, stored current
+ * values are treated as month-to-date (cannot clip), so full-month MoM is
+ * suppressed and only same-period (ratio) MoM is shown.
+ */
+const MANUAL_MTD_KEYS = new Set([
+  'socialChannelViews',
+  'appDownloads',
+  'registrations',
+  'platformActiveUsers',
+  'uniqueApplicants',
+  'screeningPasses',
+  'totalApplications',
+  'interviewsFixed',
+  'remainingEsp',
+  'selected',
+  'nyuulySubscribe',
+  'compassStarted',
+  'addToCart',
+  'welcomePackageStarted',
+  'compassFilled',
+  'mobileSimPurchased',
+  'welcomePackagePurchased',
+  'formFilled',
+  'askMeRequest',
+  'mobileNumberCollected',
+  'registeredVisaCorrected',
+  'registeredStationNameCorrected',
+  'registeredAgeCollected',
+  'jpLevelCollected',
+  'rcUploaded',
+]);
+
+function monthPartialEndIso(monthKey, dayCap) {
+  const [y, m] = monthKey.split('-').map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const day = Math.min(dayCap, daysInMonth);
+  return `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function filterGscDailyRows(dailyRows, monthKey, endIso) {
+  if (!endIso || !monthKey) return dailyRows;
+  const monthPrefix = `${monthKey}-`;
+  return dailyRows.filter((row) => {
+    const d = row.dimension_value;
+    return d && d.startsWith(monthPrefix) && d <= endIso;
+  });
+}
+
+function resolvePeriodEndIso(monthKey, periodOpts = {}) {
+  const { throughDate, samePeriodDayCap } = periodOpts;
+  if (throughDate && monthKeyFromDate(parseIsoDateLocal(throughDate)) === monthKey) {
+    return throughDate;
+  }
+  if (samePeriodDayCap) {
+    return monthPartialEndIso(monthKey, samePeriodDayCap);
+  }
+  return null;
+}
+
+function resolveQueryEndForCoverage(company, start, end) {
+  if (!start || !end) return end;
+  const monthKey = start.slice(0, 7);
+  const meta = getDataCoverageMeta(company, monthKey);
+  if (meta?.applies && meta.dataThroughDate <= end) {
+    return meta.dataThroughDate;
+  }
+  return end;
+}
+
+function buildStepMoMFields(partialValue, fullValue, prevValue, coverageMeta, prevSamePeriodValue = null) {
+  const activeUsers = coverageMeta?.applies ? partialValue : fullValue;
+  const prevActiveUsers = prevValue ?? null;
+  const base = {
+    activeUsers,
+    prevActiveUsers,
+    deltaPct: deltaPct(fullValue, prevActiveUsers),
+    prevProratedValue: null,
+    proratedDeltaPct: null,
+  };
+  if (!coverageMeta?.applies || prevActiveUsers == null) return base;
+  const prevProrated = prevSamePeriodValue != null
+    ? prevSamePeriodValue
+    : proratePrevMonth(prevActiveUsers, coverageMeta.asOfDate);
+  return {
+    ...base,
+    prevProratedValue: prevProrated != null ? Math.round(prevProrated * 10) / 10 : null,
+    proratedDeltaPct: deltaPct(partialValue, prevProrated),
+  };
+}
+
+function resolvePrevProratedValue(key, prevValue, coverageMeta, prevSamePeriod) {
+  if (prevValue == null || !coverageMeta?.applies) return null;
+  if (DAILY_PARTIAL_PREV_KEYS.has(key) && prevSamePeriod?.[key] != null) {
+    return prevSamePeriod[key];
+  }
+  return proratePrevMonth(prevValue, coverageMeta.asOfDate);
+}
+
+function metricBlockWithProration(value, prevValue, coverageMeta, prevProratedOverride = undefined) {
+  const v = value || 0;
+  const p = prevValue ?? null;
+  const base = { value: v, prevValue: p, deltaPct: deltaPct(v, p) };
+
+  if (!coverageMeta?.applies || p == null) {
+    return { ...base, prevProratedValue: null, proratedDeltaPct: null };
+  }
+
+  const prevProrated = prevProratedOverride !== undefined
+    ? prevProratedOverride
+    : proratePrevMonth(p, coverageMeta.asOfDate);
+  return {
+    ...base,
+    prevProratedValue: prevProrated != null ? Math.round(prevProrated * 1000) / 1000 : null,
+    proratedDeltaPct: deltaPct(v, prevProrated),
+  };
+}
+
+function buildKpisMapWithProration(company, monthKey, prevMonthKey, coverageMeta) {
+  const periodOpts = coverageMeta?.applies
+    ? { throughDate: coverageMeta.dataThroughDate }
+    : {};
+  const currentPartial = monthlyKpisForMonth(company, monthKey, periodOpts);
+  const currentFull = coverageMeta?.applies
+    ? monthlyKpisForMonth(company, monthKey)
+    : currentPartial;
+  const previous = prevMonthKey ? monthlyKpisForMonth(company, prevMonthKey) : null;
+  const prevSamePeriod = coverageMeta?.applies && prevMonthKey
+    ? monthlyKpisForMonth(company, prevMonthKey, { samePeriodDayCap: coverageMeta.dayOfMonth })
+    : null;
+
+  const kpis = {};
+  for (const key of Object.keys(currentPartial)) {
+    const value = currentPartial[key] || 0;
+    const fullValue = currentFull[key] || 0;
+    const prevValue = previous ? (previous[key] || 0) : null;
+
+    if (!coverageMeta?.applies || PRORATION_EXCLUDED_KEYS.has(key)) {
+      kpis[key] = metricBlock(value, prevValue);
+      continue;
+    }
+
+    // Manual MTD: uploaded current is already through the as-of date — no full month.
+    if (MANUAL_MTD_KEYS.has(key)) {
+      const prevProrated = proratePrevMonth(prevValue, coverageMeta.asOfDate);
+      kpis[key] = {
+        value,
+        prevValue,
+        deltaPct: null,
+        prevProratedValue: prevProrated != null ? Math.round(prevProrated * 1000) / 1000 : null,
+        proratedDeltaPct: deltaPct(value, prevProrated),
+      };
+      continue;
+    }
+
+    const prevProrated = resolvePrevProratedValue(key, prevValue, coverageMeta, prevSamePeriod);
+    kpis[key] = {
+      value,
+      prevValue,
+      deltaPct: deltaPct(fullValue, prevValue),
+      prevProratedValue: prevProrated != null ? Math.round(prevProrated * 1000) / 1000 : null,
+      proratedDeltaPct: deltaPct(value, prevProrated),
+    };
+  }
+  return kpis;
+}
+
+function enrichStepWithProration(step, coverageMeta, prevSamePeriodValue = null) {
+  if (!step) return step;
+  const partial = step.partialActiveUsers ?? step.activeUsers;
+  const full = step.fullActiveUsers ?? step.activeUsers;
+  return {
+    ...step,
+    ...buildStepMoMFields(partial, full, step.prevActiveUsers, coverageMeta, prevSamePeriodValue),
+  };
+}
+
 /** Aggregate every KPI for a single month key. Returns flat metric map. */
-function monthlyKpisForMonth(company, monthKey) {
+function monthlyKpisForMonth(company, monthKey, periodOpts = {}) {
   const co = company && company !== 'all' ? company : null;
   const withCompany = (extra) => (co ? [co, monthKey] : [monthKey]);
   const coFilter = co ? 'company = ? AND' : '';
 
-  const social = db.prepare(`
-    SELECT
-      COALESCE(SUM(views), 0) AS socialViews,
-      COALESCE(SUM(reach), 0) AS socialReach,
-      COALESCE(SUM(likes + comments + shares + saves), 0) AS socialEngagement,
-      COUNT(*) AS postCount
-    FROM social_posts
-    WHERE ${coFilter} ${MONTH_KEY_SQL.social_posts} = ?
-  `).get(...withCompany());
+  const periodEndIso = resolvePeriodEndIso(monthKey, periodOpts);
 
-  const users = getWebsiteUsersKpisForMonth(company, monthKey);
+  const social = getSocialPostsMonthlyAggregates(company, monthKey, periodEndIso);
 
-  const pages = db.prepare(`
-    SELECT
-      COALESCE(SUM(views), 0) AS pageViews,
-      COALESCE(SUM(active_users), 0) AS pageActiveUsers
-    FROM pages_screens
-    WHERE ${coFilter} ${MONTH_KEY_SQL.pages_screens} = ?
-  `).get(...withCompany());
+  const users = getWebsiteUsersKpisForMonth(company, monthKey, periodEndIso);
 
-  const funnel = db.prepare(`
-    SELECT
-      COALESCE(AVG(completion_rate), 0) AS funnelCompletion,
-      COALESCE(SUM(active_users), 0) AS funnelActiveUsers
-    FROM funnel_data
-    WHERE ${coFilter} device_category = 'Total' AND ${MONTH_KEY_SQL.funnel_data} = ?
-  `).get(...withCompany());
+  const pages = getPagesMonthlyAggregates(company, monthKey, periodEndIso);
+
+  const funnel = getFunnelMonthlyAggregates(company, monthKey, periodEndIso);
 
   const platform = db.prepare(`
     SELECT
@@ -941,11 +1191,15 @@ function monthlyKpisForMonth(company, monthKey) {
     WHERE ${coFilter} ${MONTH_KEY_SQL.monthly} = ?
   `).get(...withCompany());
 
-  const gscDaily = db.prepare(`
-    SELECT clicks, impressions, position
+  const gscDailyRaw = db.prepare(`
+    SELECT clicks, impressions, position, dimension_value
     FROM search_console_stats
     WHERE ${coFilter} ${MONTH_KEY_SQL.search_console_stats} = ? AND dimension_type = 'daily'
   `).all(...withCompany());
+
+  const gscDaily = periodEndIso
+    ? filterGscDailyRows(gscDailyRaw, monthKey, periodEndIso)
+    : gscDailyRaw;
 
   const gscKpis = gscKpisFromRows(gscDaily);
 
@@ -1042,15 +1296,78 @@ function monthKeyToDateRange(monthKey) {
   };
 }
 
+/** Social CSV post aggregates for a month, optionally clipped to publish dates through endOverride. */
+function getSocialPostsMonthlyAggregates(company, monthKey, endOverride = null) {
+  const co = company && company !== 'all' ? company : null;
+  const coFilter = co ? 'company = ? AND' : '';
+  const params = co ? [co, monthKey] : [monthKey];
+  let endClause = '';
+  if (endOverride) {
+    endClause = ' AND date(publish_time) <= ?';
+    params.push(endOverride);
+  }
+  return db.prepare(`
+    SELECT
+      COALESCE(SUM(views), 0) AS socialViews,
+      COALESCE(SUM(reach), 0) AS socialReach,
+      COALESCE(SUM(likes + comments + shares + saves), 0) AS socialEngagement,
+      COUNT(*) AS postCount
+    FROM social_posts
+    WHERE ${coFilter} ${MONTH_KEY_SQL.social_posts} = ?${endClause}
+  `).get(...params);
+}
+
 /** GA4 user totals for a calendar month — overlaps + prorates exports like /api/users. */
-function getWebsiteUsersKpisForMonth(company, monthKey) {
+function getWebsiteUsersKpisForMonth(company, monthKey, endOverride = null) {
   const range = monthKeyToDateRange(monthKey);
   if (!range) return { totalUsers: 0, newUsers: 0, returningUsers: 0 };
 
-  const { clause, params } = buildGa4DateQuery(company, range.start, range.end);
+  const end = endOverride && endOverride < range.end ? endOverride : range.end;
+  const { clause, params } = buildGa4DateQuery(company, range.start, end);
   const rawRows = db.prepare(`SELECT * FROM user_acquisition ${clause}`).all(...params);
-  const rows = prorateUsersRows(rawRows, range.start, range.end);
+  const rows = prorateUsersRows(rawRows, range.start, end);
   return usersKpisFromRows(rows);
+}
+
+function getPagesMonthlyAggregates(company, monthKey, endOverride = null) {
+  const range = monthKeyToDateRange(monthKey);
+  if (!range) return { pageViews: 0, pageActiveUsers: 0 };
+
+  const end = endOverride && endOverride < range.end ? endOverride : range.end;
+  const { clause, params } = buildGa4DateQuery(company, range.start, end);
+  const rawRows = db.prepare(`
+    SELECT page_path, views, active_users
+    FROM pages_screens ${clause}
+  `).all(...params);
+  const rows = proratePagesRows(rawRows, range.start, end);
+  return {
+    pageViews: rows.reduce((sum, row) => sum + (row.views || 0), 0),
+    pageActiveUsers: rows.reduce((sum, row) => sum + (row.active_users || 0), 0),
+  };
+}
+
+function getFunnelMonthlyAggregates(company, monthKey, endOverride = null) {
+  const range = monthKeyToDateRange(monthKey);
+  if (!range) return { funnelCompletion: 0, funnelActiveUsers: 0 };
+
+  const end = endOverride && endOverride < range.end ? endOverride : range.end;
+  const coFilter = company && company !== 'all' ? 'company = ? AND' : '';
+  const params = company && company !== 'all' ? [company] : [];
+  const startCompact = range.start.replace(/-/g, '');
+  const endCompact = end.replace(/-/g, '');
+
+  const rawRows = db.prepare(`
+    SELECT completion_rate, active_users
+    FROM funnel_data
+    WHERE ${coFilter} device_category = 'Total'
+      AND (substr(date_range, 1, 8) <= ? AND substr(date_range, 10, 8) >= ?)
+  `).all(...params, endCompact, startCompact);
+  const rows = prorateFunnelRows(rawRows, range.start, end);
+  const funnelActiveUsers = rows.reduce((sum, row) => sum + (row.active_users || 0), 0);
+  const funnelCompletion = rows.length
+    ? rows.reduce((sum, row) => sum + (row.completion_rate || 0), 0) / rows.length
+    : 0;
+  return { funnelCompletion, funnelActiveUsers };
 }
 
 function getWebsiteUsersForMonth(company, monthKey) {
@@ -1467,17 +1784,18 @@ function normalizePagePath(path) {
   return p.replace(/\/+$/, '') || '/';
 }
 
-function getPageActiveUsersForPaths(company, monthKey, paths) {
+function getPageActiveUsersForPaths(company, monthKey, paths, endOverride = null) {
   const range = monthKeyToDateRange(monthKey);
   if (!range || !paths?.length) return 0;
 
+  const end = endOverride && endOverride < range.end ? endOverride : range.end;
   const targets = new Set(paths.map(normalizePagePath));
-  const { clause, params } = buildGa4DateQuery(company, range.start, range.end);
+  const { clause, params } = buildGa4DateQuery(company, range.start, end);
   const rawRows = db.prepare(`
     SELECT page_path, active_users
     FROM pages_screens ${clause}
   `).all(...params);
-  const rows = proratePagesRows(rawRows, range.start, range.end);
+  const rows = proratePagesRows(rawRows, range.start, end);
 
   let total = 0;
   for (const row of rows) {
@@ -1488,19 +1806,20 @@ function getPageActiveUsersForPaths(company, monthKey, paths) {
   return total;
 }
 
-function getPageActiveUsersForPath(company, monthKey, path) {
-  return getPageActiveUsersForPaths(company, monthKey, [path]);
+function getPageActiveUsersForPath(company, monthKey, path, endOverride = null) {
+  return getPageActiveUsersForPaths(company, monthKey, [path], endOverride);
 }
 
-function getPageUsersMapForMonth(company, monthKey) {
+function getPageUsersMapForMonth(company, monthKey, endOverride = null) {
   const range = monthKeyToDateRange(monthKey);
   if (!range) return {};
-  const { clause, params } = buildGa4DateQuery(company, range.start, range.end);
+  const end = endOverride && endOverride < range.end ? endOverride : range.end;
+  const { clause, params } = buildGa4DateQuery(company, range.start, end);
   const rawRows = db.prepare(`
     SELECT page_path, active_users
     FROM pages_screens ${clause}
   `).all(...params);
-  const rows = proratePagesRows(rawRows, range.start, range.end);
+  const rows = proratePagesRows(rawRows, range.start, end);
   const map = {};
   for (const row of rows) {
     const p = normalizePagePath(row.page_path);
@@ -1520,18 +1839,34 @@ const COMPASS_USES_CATEGORIES = [
   { key: 'others', label: 'Others', path: '/compass/others' },
 ];
 
-function buildCompassUsesFlow(company, monthKey, prevMonthKey = null) {
-  const pages = getPageUsersMapForMonth(company, monthKey);
-  const prevPages = prevMonthKey ? getPageUsersMapForMonth(company, prevMonthKey) : {};
+function buildCompassUsesFlow(company, monthKey, prevMonthKey = null, coverageMeta = null) {
+  const partialEnd = coverageMeta?.applies ? coverageMeta.dataThroughDate : null;
+  const prevPartialEnd = coverageMeta?.applies && prevMonthKey
+    ? monthPartialEndIso(prevMonthKey, coverageMeta.dayOfMonth)
+    : null;
 
-  const rootUsers = pages[COMPASS_USES_ROOT] || 0;
+  const pagesFull = getPageUsersMapForMonth(company, monthKey);
+  const pagesPartial = partialEnd ? getPageUsersMapForMonth(company, monthKey, partialEnd) : pagesFull;
+  const prevPages = prevMonthKey ? getPageUsersMapForMonth(company, prevMonthKey) : {};
+  const prevPagesPartial = prevMonthKey && prevPartialEnd
+    ? getPageUsersMapForMonth(company, prevMonthKey, prevPartialEnd)
+    : {};
+
+  const readPath = (path) => (coverageMeta?.applies ? (pagesPartial[path] || 0) : (pagesFull[path] || 0));
+  const readFull = (path) => pagesFull[path] || 0;
+
+  const rootPartial = readPath(COMPASS_USES_ROOT);
+  const rootFull = readFull(COMPASS_USES_ROOT);
   const rootPrev = prevPages[COMPASS_USES_ROOT] ?? null;
+  const rootPrevSame = prevPagesPartial[COMPASS_USES_ROOT] ?? null;
 
   const categories = COMPASS_USES_CATEGORIES.map((cat) => {
-    const activeUsers = pages[cat.path] || 0;
+    const partialUsers = readPath(cat.path);
+    const fullUsers = readFull(cat.path);
     const prevActiveUsers = prevPages[cat.path] ?? null;
+    const prevSamePeriod = prevPagesPartial[cat.path] ?? null;
     const prefix = `${cat.path}/`;
-    const children = Object.entries(pages)
+    const children = Object.entries(pagesFull)
       .filter(([path]) => path.startsWith(prefix))
       .map(([path, users]) => ({
         path,
@@ -1545,10 +1880,8 @@ function buildCompassUsesFlow(company, monthKey, prevMonthKey = null) {
     return {
       ...cat,
       url: `https://nyuuly.com${cat.path}`,
-      activeUsers,
-      prevActiveUsers,
-      deltaPct: deltaPct(activeUsers, prevActiveUsers),
-      fromCompassPct: rootUsers > 0 ? Math.round((activeUsers / rootUsers) * 1000) / 10 : null,
+      ...buildStepMoMFields(partialUsers, fullUsers, prevActiveUsers, coverageMeta, prevSamePeriod),
+      fromCompassPct: rootPartial > 0 ? Math.round((partialUsers / rootPartial) * 1000) / 10 : null,
       children,
       childTotal: children.reduce((s, c) => s + c.activeUsers, 0),
     };
@@ -1559,43 +1892,42 @@ function buildCompassUsesFlow(company, monthKey, prevMonthKey = null) {
       path: COMPASS_USES_ROOT,
       label: 'Compass',
       url: 'https://nyuuly.com/compass',
-      activeUsers: rootUsers,
-      prevActiveUsers: rootPrev,
-      deltaPct: deltaPct(rootUsers, rootPrev),
+      ...buildStepMoMFields(rootPartial, rootFull, rootPrev, coverageMeta, rootPrevSame),
     },
     categories,
   };
 }
 
-function buildMobileSimFlowSteps(company, monthKey, prevMonthKey = null) {
-  const currentValues = MOBILE_SIM_FLOW_STEPS.map((step) => ({
-    ...step,
-    activeUsers: getPageActiveUsersForPath(company, monthKey, step.path),
-  }));
+function buildMobileSimFlowSteps(company, monthKey, prevMonthKey = null, coverageMeta = null) {
+  const partialEnd = coverageMeta?.applies ? coverageMeta.dataThroughDate : null;
+  const prevPartialEnd = coverageMeta?.applies && prevMonthKey
+    ? monthPartialEndIso(prevMonthKey, coverageMeta.dayOfMonth)
+    : null;
 
-  const prevValues = prevMonthKey
-    ? Object.fromEntries(MOBILE_SIM_FLOW_STEPS.map((step) => [
-      step.key,
-      getPageActiveUsersForPath(company, prevMonthKey, step.path),
-    ]))
-    : {};
-
-  return currentValues.map((step, index) => {
-    const prevActiveUsers = prevValues[step.key] ?? null;
-    const prevStepUsers = index > 0 ? currentValues[index - 1].activeUsers : null;
-    const fromPrevStepPct = index > 0 && prevStepUsers > 0
-      ? Math.round((step.activeUsers / prevStepUsers) * 1000) / 10
+  const stepsBuilt = MOBILE_SIM_FLOW_STEPS.map((step) => {
+    const partial = getPageActiveUsersForPath(company, monthKey, step.path, partialEnd);
+    const full = getPageActiveUsersForPath(company, monthKey, step.path);
+    const prevActiveUsers = prevMonthKey
+      ? getPageActiveUsersForPath(company, prevMonthKey, step.path)
+      : null;
+    const prevSamePeriod = prevMonthKey && prevPartialEnd
+      ? getPageActiveUsersForPath(company, prevMonthKey, step.path, prevPartialEnd)
       : null;
     return {
       key: step.key,
       label: step.label,
       path: step.path,
       url: `https://nyuuly.com${step.path}`,
-      activeUsers: step.activeUsers,
-      prevActiveUsers,
-      deltaPct: deltaPct(step.activeUsers, prevActiveUsers),
-      fromPrevStepPct,
+      ...buildStepMoMFields(partial, full, prevActiveUsers, coverageMeta, prevSamePeriod),
     };
+  });
+
+  return stepsBuilt.map((step, index) => {
+    const prevStepUsers = index > 0 ? stepsBuilt[index - 1].activeUsers : null;
+    const fromPrevStepPct = index > 0 && prevStepUsers > 0
+      ? Math.round((step.activeUsers / prevStepUsers) * 1000) / 10
+      : null;
+    return { ...step, fromPrevStepPct };
   });
 }
 
@@ -1933,15 +2265,16 @@ function getCombinedAvailableMonths() {
   return [...set].sort();
 }
 
-function getUsersByChannelForMonth(company, monthKey) {
+function getUsersByChannelForMonth(company, monthKey, endOverride = null) {
   const range = monthKeyToDateRange(monthKey);
   if (!range) return {};
-  const { clause, params } = buildGa4DateQuery(company, range.start, range.end);
+  const end = endOverride && endOverride < range.end ? endOverride : range.end;
+  const { clause, params } = buildGa4DateQuery(company, range.start, end);
   const rawRows = db.prepare(`
     SELECT channel_group, total_users
     FROM user_acquisition ${clause}
   `).all(...params);
-  const rows = prorateUsersRows(rawRows, range.start, range.end);
+  const rows = prorateUsersRows(rawRows, range.start, end);
   const map = {};
   for (const row of rows) {
     const ch = row.channel_group || 'Unknown';
@@ -1950,19 +2283,69 @@ function getUsersByChannelForMonth(company, monthKey) {
   return map;
 }
 
-function metricBlock(value, prevValue) {
+function metricBlock(value, prevValue, coverageMeta = null) {
+  if (coverageMeta) return metricBlockWithProration(value, prevValue, coverageMeta);
   const v = value || 0;
   const p = prevValue ?? null;
-  return { value: v, prevValue: p, deltaPct: deltaPct(v, p) };
+  return {
+    value: v,
+    prevValue: p,
+    deltaPct: deltaPct(v, p),
+    prevProratedValue: null,
+    proratedDeltaPct: null,
+  };
 }
 
-function companySplit(wjVal, nyVal, wjPrev, nyPrev) {
+/**
+ * Combined company metric.
+ * options: {
+ *   prevSame: { wj, ny },   // same-period prior baselines (preferred)
+ *   full: { wj, ny },       // full-month current for full MoM badge
+ *   manualMtd: boolean,     // suppress full MoM; ratio-prorate prior only
+ * }
+ * Legacy: 7th arg may be { wj, ny } meaning prevSame.
+ */
+function companySplit(wjVal, nyVal, wjPrev, nyPrev, wjMeta = null, nyMeta = null, options = null) {
+  const opts = options && (options.prevSame || options.full || options.manualMtd != null)
+    ? options
+    : { prevSame: options };
+  const prevSame = opts.prevSame || null;
+  const full = opts.full || null;
+  const manualMtd = Boolean(opts.manualMtd);
+
   const total = (wjVal || 0) + (nyVal || 0);
   const prevTotal = wjPrev != null || nyPrev != null
     ? (wjPrev || 0) + (nyPrev || 0)
     : null;
+  const fullTotal = full
+    ? ((full.wj || 0) + (full.ny || 0))
+    : total;
+
+  const wjProratedPrev = wjMeta?.applies && wjPrev != null
+    ? (prevSame?.wj ?? proratePrevMonth(wjPrev, wjMeta.asOfDate))
+    : null;
+  const nyProratedPrev = nyMeta?.applies && nyPrev != null
+    ? (prevSame?.ny ?? proratePrevMonth(nyPrev, nyMeta.asOfDate))
+    : null;
+  const prevProratedTotal = prevTotal == null
+    ? null
+    : (wjProratedPrev ?? (wjPrev || 0)) + (nyProratedPrev ?? (nyPrev || 0));
+  const appliesCombined = Boolean(wjMeta?.applies || nyMeta?.applies);
+
+  const totalMetric = {
+    value: total,
+    prevValue: prevTotal,
+    deltaPct: (appliesCombined && manualMtd) ? null : deltaPct(fullTotal, prevTotal),
+    prevProratedValue: null,
+    proratedDeltaPct: null,
+  };
+  if (appliesCombined && prevProratedTotal != null) {
+    totalMetric.prevProratedValue = Math.round(prevProratedTotal * 10) / 10;
+    totalMetric.proratedDeltaPct = deltaPct(total, prevProratedTotal);
+  }
+
   return {
-    total: metricBlock(total, prevTotal),
+    total: totalMetric,
     workjapan: { value: wjVal || 0, prevValue: wjPrev ?? null },
     nyuuly: { value: nyVal || 0, prevValue: nyPrev ?? null },
     workjapanPct: total > 0 ? Math.round(((wjVal || 0) / total) * 1000) / 10 : 0,
@@ -1970,36 +2353,103 @@ function companySplit(wjVal, nyVal, wjPrev, nyPrev) {
   };
 }
 
-function buildStageMetricItems(items, prevResolver) {
+function buildStageMetricItems(items, prevResolver, wjMeta = null, nyMeta = null, extras = {}) {
+  const { fullResolver = null, prevSameResolver = null, manualKeys = new Set() } = extras;
+  const metaForItem = (item) => (item.company === 'WORK JAPAN' ? wjMeta : nyMeta);
   const enriched = items.map((item) => {
     const value = (item.workjapan || 0) + (item.nyuuly || 0);
     const prevValue = prevResolver ? prevResolver(item) : null;
-    return { ...item, value, ...metricBlock(value, prevValue) };
+    const meta = metaForItem(item);
+    const fullValue = fullResolver ? fullResolver(item) : value;
+    const prevSame = prevSameResolver ? prevSameResolver(item) : null;
+    const isManual = manualKeys.has(item.key) || item.manualMtd;
+
+    if (!meta?.applies) {
+      return { ...item, value, ...metricBlock(value, prevValue) };
+    }
+
+    if (isManual) {
+      const prevProrated = prevValue != null ? proratePrevMonth(prevValue, meta.asOfDate) : null;
+      return {
+        ...item,
+        value,
+        prevValue,
+        deltaPct: null,
+        prevProratedValue: prevProrated != null ? Math.round(prevProrated * 10) / 10 : null,
+        proratedDeltaPct: deltaPct(value, prevProrated),
+      };
+    }
+
+    const prevProrated = prevSame != null
+      ? prevSame
+      : (prevValue != null ? proratePrevMonth(prevValue, meta.asOfDate) : null);
+    return {
+      ...item,
+      value,
+      prevValue,
+      deltaPct: deltaPct(fullValue, prevValue),
+      prevProratedValue: prevProrated != null ? Math.round(prevProrated * 10) / 10 : null,
+      proratedDeltaPct: deltaPct(value, prevProrated),
+    };
   });
   const total = enriched.reduce((s, i) => s + i.value, 0);
   const prevTotal = enriched.every((i) => i.prevValue == null)
     ? null
     : enriched.reduce((s, i) => s + (i.prevValue || 0), 0);
+  const fullTotal = enriched.reduce((s, i) => {
+    const item = items.find((x) => x.key === i.key);
+    const fullVal = fullResolver && item ? fullResolver(item) : i.value;
+    return s + (fullVal || 0);
+  }, 0);
+  const prevProratedTotal = enriched.every((i) => i.prevProratedValue == null)
+    ? null
+    : enriched.reduce((s, i) => s + (i.prevProratedValue ?? i.prevValue ?? 0), 0);
+  const allManual = enriched.length > 0 && enriched.every((i) => i.deltaPct == null && i.proratedDeltaPct != null);
   enriched.forEach((item) => {
     item.pct = total > 0 ? Math.round((item.value / total) * 1000) / 10 : 0;
   });
+
+  const totalMetric = {
+    value: total,
+    prevValue: prevTotal,
+    deltaPct: allManual ? null : deltaPct(fullTotal, prevTotal),
+    prevProratedValue: null,
+    proratedDeltaPct: null,
+  };
+  if (prevProratedTotal != null && (wjMeta?.applies || nyMeta?.applies)) {
+    totalMetric.prevProratedValue = Math.round(prevProratedTotal * 10) / 10;
+    totalMetric.proratedDeltaPct = deltaPct(total, prevProratedTotal);
+  }
+
   return {
-    total: metricBlock(total, prevTotal),
+    total: totalMetric,
     items: enriched,
   };
 }
 
 function buildCombinedFunnelData(monthKey) {
-  const wj = monthlyKpisForMonth('workjapan', monthKey);
-  const ny = monthlyKpisForMonth('nyuuly', monthKey);
+  const wjMeta = getDataCoverageMeta('workjapan', monthKey);
+  const nyMeta = getDataCoverageMeta('nyuuly', monthKey);
+  const wjOpts = wjMeta?.applies ? { throughDate: wjMeta.dataThroughDate } : {};
+  const nyOpts = nyMeta?.applies ? { throughDate: nyMeta.dataThroughDate } : {};
   const months = getCombinedAvailableMonths();
   const idx = months.indexOf(monthKey);
   const prevKey = idx > 0 ? months[idx - 1] : null;
+  const wj = monthlyKpisForMonth('workjapan', monthKey, wjOpts);
+  const ny = monthlyKpisForMonth('nyuuly', monthKey, nyOpts);
+  const wjFull = wjMeta?.applies ? monthlyKpisForMonth('workjapan', monthKey) : wj;
+  const nyFull = nyMeta?.applies ? monthlyKpisForMonth('nyuuly', monthKey) : ny;
   const wjPrev = prevKey ? monthlyKpisForMonth('workjapan', prevKey) : null;
   const nyPrev = prevKey ? monthlyKpisForMonth('nyuuly', prevKey) : null;
+  const wjPrevSame = wjMeta?.applies && prevKey
+    ? monthlyKpisForMonth('workjapan', prevKey, { samePeriodDayCap: wjMeta.dayOfMonth })
+    : null;
+  const nyPrevSame = nyMeta?.applies && prevKey
+    ? monthlyKpisForMonth('nyuuly', prevKey, { samePeriodDayCap: nyMeta.dayOfMonth })
+    : null;
 
-  const wjChannels = getUsersByChannelForMonth('workjapan', monthKey);
-  const nyChannels = getUsersByChannelForMonth('nyuuly', monthKey);
+  const wjChannels = getUsersByChannelForMonth('workjapan', monthKey, wjMeta?.applies ? wjMeta.dataThroughDate : null);
+  const nyChannels = getUsersByChannelForMonth('nyuuly', monthKey, nyMeta?.applies ? nyMeta.dataThroughDate : null);
   const channelSet = new Set([...Object.keys(wjChannels), ...Object.keys(nyChannels)]);
   const totalUsersVal = (wj.totalUsers || 0) + (ny.totalUsers || 0);
   const channels = [...channelSet].map((ch) => {
@@ -2016,9 +2466,17 @@ function buildCombinedFunnelData(monthKey) {
   }).sort((a, b) => b.total - a.total);
 
   const awareness = {
-    gscImpressions: companySplit(wj.gscImpressions, ny.gscImpressions, wjPrev?.gscImpressions, nyPrev?.gscImpressions),
-    socialChannelViews: companySplit(wj.socialChannelViews, ny.socialChannelViews, wjPrev?.socialChannelViews, nyPrev?.socialChannelViews),
-    socialPostViews: companySplit(wj.socialViews, ny.socialViews, wjPrev?.socialViews, nyPrev?.socialViews),
+    gscImpressions: companySplit(wj.gscImpressions, ny.gscImpressions, wjPrev?.gscImpressions, nyPrev?.gscImpressions, wjMeta, nyMeta, {
+      prevSame: { wj: wjPrevSame?.gscImpressions, ny: nyPrevSame?.gscImpressions },
+      full: { wj: wjFull.gscImpressions, ny: nyFull.gscImpressions },
+    }),
+    socialChannelViews: companySplit(wj.socialChannelViews, ny.socialChannelViews, wjPrev?.socialChannelViews, nyPrev?.socialChannelViews, wjMeta, nyMeta, {
+      manualMtd: true,
+    }),
+    socialPostViews: companySplit(wj.socialViews, ny.socialViews, wjPrev?.socialViews, nyPrev?.socialViews, wjMeta, nyMeta, {
+      prevSame: { wj: wjPrevSame?.socialViews, ny: nyPrevSame?.socialViews },
+      full: { wj: wjFull.socialViews, ny: nyFull.socialViews },
+    }),
     brandMessages: {
       workjapan: getBrandMessageForMonth('workjapan', monthKey).message,
       nyuuly: getBrandMessageForMonth('nyuuly', monthKey).message,
@@ -2026,7 +2484,10 @@ function buildCombinedFunnelData(monthKey) {
   };
 
   const consideration = {
-    totalUsers: companySplit(wj.totalUsers, ny.totalUsers, wjPrev?.totalUsers, nyPrev?.totalUsers),
+    totalUsers: companySplit(wj.totalUsers, ny.totalUsers, wjPrev?.totalUsers, nyPrev?.totalUsers, wjMeta, nyMeta, {
+      prevSame: { wj: wjPrevSame?.totalUsers, ny: nyPrevSame?.totalUsers },
+      full: { wj: wjFull.totalUsers, ny: nyFull.totalUsers },
+    }),
     channels,
     sourceBreakdown: websiteUsersSourceBreakdownFromChannelMap(
       Object.fromEntries(channels.map((c) => [c.channel, c.total])),
@@ -2034,18 +2495,42 @@ function buildCombinedFunnelData(monthKey) {
   };
 
   const commit = {
-    totalSignUps: companySplit(wj.registrations, ny.nyuulySubscribe, wjPrev?.registrations, nyPrev?.nyuulySubscribe),
-    totalAppDownloads: companySplit(wj.appDownloads, ny.appDownloads, wjPrev?.appDownloads, nyPrev?.appDownloads),
-    compassStarted: companySplit(0, ny.compassStarted, 0, nyPrev?.compassStarted),
+    totalSignUps: companySplit(wj.registrations, ny.nyuulySubscribe, wjPrev?.registrations, nyPrev?.nyuulySubscribe, wjMeta, nyMeta, {
+      manualMtd: true,
+    }),
+    totalAppDownloads: companySplit(wj.appDownloads, ny.appDownloads, wjPrev?.appDownloads, nyPrev?.appDownloads, wjMeta, nyMeta, {
+      manualMtd: true,
+    }),
+    compassStarted: companySplit(0, ny.compassStarted, 0, nyPrev?.compassStarted, wjMeta, nyMeta, {
+      manualMtd: true,
+    }),
   };
 
-  const nyMobileSim = getMobileSimFlowForMonth('nyuuly', monthKey).steps;
-  const nyMobileSimPrev = prevKey ? getMobileSimFlowForMonth('nyuuly', prevKey).steps : [];
+  const nyMobileSim = buildMobileSimFlowSteps('nyuuly', monthKey, prevKey, nyMeta);
+  const nyMobileSimFull = buildMobileSimFlowSteps('nyuuly', monthKey, prevKey, null);
+  const nyMobileSimPrev = prevKey ? buildMobileSimFlowSteps('nyuuly', prevKey) : [];
+  const nyMobileSimPrevSame = prevKey && nyMeta?.applies
+    ? buildMobileSimFlowSteps('nyuuly', prevKey, null, {
+      ...nyMeta,
+      applies: true,
+      dataThroughDate: monthPartialEndIso(prevKey, nyMeta.dayOfMonth),
+      asOfDate: parseIsoDateLocal(monthPartialEndIso(prevKey, nyMeta.dayOfMonth)),
+    })
+    : [];
   const nyStep = (key) => nyMobileSim.find((s) => s.key === key)?.activeUsers || 0;
+  const nyStepFull = (key) => nyMobileSimFull.find((s) => s.key === key)?.activeUsers || 0;
   const nyStepPrev = (key) => nyMobileSimPrev.find((s) => s.key === key)?.activeUsers || 0;
+  const nyStepPrevSame = (key) => nyMobileSimPrevSame.find((s) => s.key === key)?.activeUsers ?? null;
+  const simKeyMap = {
+    mobileSimApply: 'apply',
+    mobileSimVerify: 'verify',
+    mobileSimIdentity: 'identity',
+    mobileSimPayment: 'payment',
+    mobileSimConfirm: 'confirm',
+  };
 
   const proceed = buildStageMetricItems([
-    { key: 'totalApplications', label: 'Applications', company: 'WORK JAPAN', workjapan: wj.totalApplications || 0, nyuuly: 0 },
+    { key: 'totalApplications', label: 'Applications', company: 'WORK JAPAN', workjapan: wj.totalApplications || 0, nyuuly: 0, manualMtd: true },
     { key: 'mobileSimApply', label: 'Mobile Sim — Apply', company: 'Nyuuly', workjapan: 0, nyuuly: nyStep('apply') },
     { key: 'mobileSimVerify', label: 'Mobile Sim — Verify', company: 'Nyuuly', workjapan: 0, nyuuly: nyStep('verify') },
     { key: 'mobileSimIdentity', label: 'Mobile Sim — Identity', company: 'Nyuuly', workjapan: 0, nyuuly: nyStep('identity') },
@@ -2054,30 +2539,37 @@ function buildCombinedFunnelData(monthKey) {
   ], (item) => {
     if (!prevKey) return null;
     if (item.key === 'totalApplications') return wjPrev?.totalApplications || 0;
-    const stepMap = {
-      mobileSimApply: 'apply',
-      mobileSimVerify: 'verify',
-      mobileSimIdentity: 'identity',
-      mobileSimPayment: 'payment',
-      mobileSimConfirm: 'confirm',
-    };
-    return nyStepPrev(stepMap[item.key] || item.key);
+    return nyStepPrev(simKeyMap[item.key] || item.key);
+  }, wjMeta, nyMeta, {
+    fullResolver: (item) => {
+      if (item.key === 'totalApplications') return item.workjapan || 0;
+      return nyStepFull(simKeyMap[item.key] || item.key);
+    },
+    prevSameResolver: (item) => {
+      if (item.key === 'totalApplications' || !prevKey || !nyMeta?.applies) return null;
+      return nyStepPrevSame(simKeyMap[item.key] || item.key);
+    },
   });
 
   const result = buildStageMetricItems([
-    { key: 'selected', label: 'Selected', company: 'WORK JAPAN', workjapan: wj.selected || 0, nyuuly: 0 },
-    { key: 'interviewsFixed', label: 'Interviews fixed', company: 'WORK JAPAN', workjapan: wj.interviewsFixed || 0, nyuuly: 0 },
-    { key: 'screeningPasses', label: 'Screening passes', company: 'WORK JAPAN', workjapan: wj.screeningPasses || 0, nyuuly: 0 },
-    { key: 'remainingEsp', label: 'Remaining ESP', company: 'WORK JAPAN', workjapan: wj.remainingEsp || 0, nyuuly: 0 },
-    { key: 'mobileSimPurchased', label: 'Mobile Sim purchased', company: 'Nyuuly', workjapan: 0, nyuuly: ny.mobileSimPurchased || 0 },
-    { key: 'welcomePackagePurchased', label: 'Welcome package purchased', company: 'Nyuuly', workjapan: 0, nyuuly: ny.welcomePackagePurchased || 0 },
-    { key: 'formFilled', label: 'Form filled', company: 'Nyuuly', workjapan: 0, nyuuly: ny.formFilled || 0 },
-    { key: 'askMeRequest', label: 'Ask me request', company: 'Nyuuly', workjapan: 0, nyuuly: ny.askMeRequest || 0 },
+    { key: 'selected', label: 'Selected', company: 'WORK JAPAN', workjapan: wj.selected || 0, nyuuly: 0, manualMtd: true },
+    { key: 'interviewsFixed', label: 'Interviews fixed', company: 'WORK JAPAN', workjapan: wj.interviewsFixed || 0, nyuuly: 0, manualMtd: true },
+    { key: 'screeningPasses', label: 'Screening passes', company: 'WORK JAPAN', workjapan: wj.screeningPasses || 0, nyuuly: 0, manualMtd: true },
+    { key: 'remainingEsp', label: 'Remaining ESP', company: 'WORK JAPAN', workjapan: wj.remainingEsp || 0, nyuuly: 0, manualMtd: true },
+    { key: 'mobileSimPurchased', label: 'Mobile Sim purchased', company: 'Nyuuly', workjapan: 0, nyuuly: ny.mobileSimPurchased || 0, manualMtd: true },
+    { key: 'welcomePackagePurchased', label: 'Welcome package purchased', company: 'Nyuuly', workjapan: 0, nyuuly: ny.welcomePackagePurchased || 0, manualMtd: true },
+    { key: 'formFilled', label: 'Form filled', company: 'Nyuuly', workjapan: 0, nyuuly: ny.formFilled || 0, manualMtd: true },
+    { key: 'askMeRequest', label: 'Ask me request', company: 'Nyuuly', workjapan: 0, nyuuly: ny.askMeRequest || 0, manualMtd: true },
   ], (item) => {
     if (!prevKey) return null;
     if (item.company === 'WORK JAPAN') return wjPrev?.[item.key] || 0;
     return nyPrev?.[item.key] || 0;
-  });
+  }, wjMeta, nyMeta);
+
+  const dataCoverage = {
+    workjapan: wjMeta?.applies ? { label: wjMeta.label, dataThroughDate: wjMeta.dataThroughDate } : null,
+    nyuuly: nyMeta?.applies ? { label: nyMeta.label, dataThroughDate: nyMeta.dataThroughDate } : null,
+  };
 
   return {
     month: monthKey,
@@ -2096,6 +2588,7 @@ function buildCombinedFunnelData(monthKey) {
     },
     stages: { awareness, consideration, commit, proceed, result },
     months: months.map((key) => ({ key, label: monthKeyLabel(key) })),
+    dataCoverage,
   };
 }
 
@@ -2139,18 +2632,24 @@ function formatBriefNum(n) {
   return num.toLocaleString('en-US');
 }
 
-function buildWeeklyBriefMetric(company, monthKey, prevMonthLabel, catalogEntry, metric) {
-  if (!metric || metric.deltaPct == null) return null;
+function buildWeeklyBriefMetric(company, monthKey, prevMonthLabel, catalogEntry, metric, coverageMeta) {
+  const useProrated = coverageMeta?.applies && metric.proratedDeltaPct != null;
+  const delta = useProrated ? metric.proratedDeltaPct : metric.deltaPct;
+  if (delta == null) return null;
   if ((metric.value || 0) === 0 && (metric.prevValue || 0) === 0) return null;
 
-  const delta = metric.deltaPct;
   const isUp = delta > 0;
   const absPct = Math.abs(delta).toFixed(1);
   const dashboardUrl = `/?company=${company}&month=${monthKey}#${catalogEntry.anchor}`;
+  const compareLabel = useProrated
+    ? 'the same period last month'
+    : prevMonthLabel;
+
+  const prevDisplay = useProrated ? metric.prevProratedValue : metric.prevValue;
 
   const summary = isUp
-    ? `${catalogEntry.label} increased from ${formatBriefNum(metric.prevValue)} to ${formatBriefNum(metric.value)} (+${absPct}% vs ${prevMonthLabel}). Strong performance in the ${catalogEntry.stage} stage — keep doing what's working.`
-    : `${catalogEntry.label} fell from ${formatBriefNum(metric.prevValue)} to ${formatBriefNum(metric.value)} (−${absPct}% vs ${prevMonthLabel}). This decline in the ${catalogEntry.stage} stage should be reviewed in the weekly meeting.`;
+    ? `${catalogEntry.label} increased from ${formatBriefNum(prevDisplay)} to ${formatBriefNum(metric.value)} (+${absPct}% vs ${compareLabel}). Strong performance in the ${catalogEntry.stage} stage — keep doing what's working.`
+    : `${catalogEntry.label} fell from ${formatBriefNum(prevDisplay)} to ${formatBriefNum(metric.value)} (−${absPct}% vs ${compareLabel}). This decline in the ${catalogEntry.stage} stage should be reviewed in the weekly meeting.`;
 
   return {
     key: catalogEntry.key,
@@ -2158,7 +2657,11 @@ function buildWeeklyBriefMetric(company, monthKey, prevMonthLabel, catalogEntry,
     stage: catalogEntry.stage,
     value: metric.value,
     prevValue: metric.prevValue,
-    deltaPct: delta,
+    prevProratedValue: metric.prevProratedValue,
+    deltaPct: metric.deltaPct,
+    proratedDeltaPct: metric.proratedDeltaPct,
+    displayDeltaPct: delta,
+    compareMode: useProrated ? 'prorated' : 'full',
     direction: isUp ? 'up' : 'down',
     summary,
     dashboardUrl,
@@ -2166,32 +2669,46 @@ function buildWeeklyBriefMetric(company, monthKey, prevMonthLabel, catalogEntry,
 }
 
 function buildWeeklyBriefForCompany(company, monthKey, prevMonthKey, prevMonthLabel) {
-  const current = monthlyKpisForMonth(company, monthKey);
-  const previous = prevMonthKey ? monthlyKpisForMonth(company, prevMonthKey) : null;
-
-  const kpisMap = {};
-  for (const key of Object.keys(current)) {
-    const value = current[key] || 0;
-    const prevValue = previous ? (previous[key] || 0) : null;
-    kpisMap[key] = { value, prevValue, deltaPct: deltaPct(value, prevValue) };
-  }
+  const coverageMeta = getDataCoverageMeta(company, monthKey);
+  const kpisMap = buildKpisMapWithProration(company, monthKey, prevMonthKey, coverageMeta);
 
   if (company === 'nyuuly') {
-    const apply = getMobileSimFlowForMonth(company, monthKey).steps.find((s) => s.key === 'apply')?.activeUsers || 0;
-    const prevApply = prevMonthKey
-      ? (getMobileSimFlowForMonth(company, prevMonthKey).steps.find((s) => s.key === 'apply')?.activeUsers || 0)
+    const applyPath = MOBILE_SIM_FLOW_STEPS.find((s) => s.key === 'apply')?.path;
+    const partialEnd = coverageMeta?.applies ? coverageMeta.dataThroughDate : null;
+    const prevPartialEnd = coverageMeta?.applies && prevMonthKey
+      ? monthPartialEndIso(prevMonthKey, coverageMeta.dayOfMonth)
       : null;
-    kpisMap.mobileSimApply = { value: apply, prevValue: prevApply, deltaPct: deltaPct(apply, prevApply) };
+    const applyPartial = applyPath ? getPageActiveUsersForPath(company, monthKey, applyPath, partialEnd) : 0;
+    const applyFull = applyPath ? getPageActiveUsersForPath(company, monthKey, applyPath) : 0;
+    const prevApply = prevMonthKey && applyPath
+      ? getPageActiveUsersForPath(company, prevMonthKey, applyPath)
+      : null;
+    const prevApplySame = prevMonthKey && applyPath && prevPartialEnd
+      ? getPageActiveUsersForPath(company, prevMonthKey, applyPath, prevPartialEnd)
+      : null;
+    const applyFields = buildStepMoMFields(applyPartial, applyFull, prevApply, coverageMeta, prevApplySame);
+    kpisMap.mobileSimApply = {
+      value: applyFields.activeUsers,
+      prevValue: applyFields.prevActiveUsers,
+      deltaPct: applyFields.deltaPct,
+      prevProratedValue: applyFields.prevProratedValue,
+      proratedDeltaPct: applyFields.proratedDeltaPct,
+    };
   }
 
   const catalog = WEEKLY_BRIEF_KPI_CATALOG.filter((c) => c.companies.includes(company));
   const scored = catalog
-    .map((c) => buildWeeklyBriefMetric(company, monthKey, prevMonthLabel, c, kpisMap[c.key]))
+    .map((c) => buildWeeklyBriefMetric(company, monthKey, prevMonthLabel, c, kpisMap[c.key], coverageMeta))
     .filter(Boolean);
 
+  const rankDelta = (m) => m.displayDeltaPct;
+
   return {
-    worst: scored.filter((m) => m.deltaPct < 0).sort((a, b) => a.deltaPct - b.deltaPct).slice(0, 5),
-    best: scored.filter((m) => m.deltaPct > 0).sort((a, b) => b.deltaPct - a.deltaPct).slice(0, 5),
+    worst: scored.filter((m) => rankDelta(m) < 0).sort((a, b) => rankDelta(a) - rankDelta(b)).slice(0, 5),
+    best: scored.filter((m) => rankDelta(m) > 0).sort((a, b) => rankDelta(b) - rankDelta(a)).slice(0, 5),
+    dataCoverage: coverageMeta?.applies
+      ? { label: coverageMeta.label, dataThroughDate: coverageMeta.dataThroughDate }
+      : null,
   };
 }
 
@@ -2205,7 +2722,7 @@ function buildWeeklyBriefCompanyBlock(company, requestedMonth) {
   const idx = months.indexOf(month);
   const prevMonth = idx > 0 ? months[idx - 1] : null;
   const prevMonthLabel = prevMonth ? monthKeyLabel(prevMonth) : 'the prior month';
-  const { worst, best } = buildWeeklyBriefForCompany(company, month, prevMonth, prevMonthLabel);
+  const { worst, best, dataCoverage } = buildWeeklyBriefForCompany(company, month, prevMonth, prevMonthLabel);
 
   return {
     company,
@@ -2216,6 +2733,7 @@ function buildWeeklyBriefCompanyBlock(company, requestedMonth) {
     prevMonthLabel,
     worst,
     best,
+    dataCoverage,
   };
 }
 
@@ -2318,6 +2836,88 @@ app.post('/api/upload', uploadLimiter, upload.single('file'), (req, res) => {
     });
   } catch (err) {
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/data-coverage', (req, res) => {
+  try {
+    const { company, month } = req.query;
+    if (company) {
+      const monthKey = month || getDefaultMonthKey(company, getAvailableMonths(company));
+      const meta = monthKey ? getDataCoverageMeta(company, monthKey) : null;
+      const row = getDataCoverageRow(company);
+      if (!row) return res.json({ company, dataThroughDate: null, applies: false });
+      return res.json({
+        company,
+        dataThroughDate: row.data_through_date,
+        updatedAt: row.updated_at,
+        monthKey: meta?.monthKey || monthKeyFromDate(parseIsoDateLocal(row.data_through_date)),
+        dayOfMonth: meta?.dayOfMonth ?? parseIsoDateLocal(row.data_through_date).getDate(),
+        ratio: meta?.ratio ?? null,
+        label: meta?.label ?? null,
+        applies: Boolean(meta?.applies),
+      });
+    }
+
+    const companies = ['workjapan', 'nyuuly'];
+    const result = {};
+    for (const co of companies) {
+      const row = getDataCoverageRow(co);
+      if (!row) {
+        result[co] = { company: co, dataThroughDate: null, applies: false };
+        continue;
+      }
+      const monthKey = month || getDefaultMonthKey(co, getAvailableMonths(co));
+      const meta = monthKey ? getDataCoverageMeta(co, monthKey) : null;
+      result[co] = {
+        company: co,
+        dataThroughDate: row.data_through_date,
+        updatedAt: row.updated_at,
+        label: meta?.label ?? null,
+        applies: Boolean(meta?.applies),
+      };
+    }
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/manual/data-coverage', uploadLimiter, (req, res) => {
+  try {
+    const { company, dataThroughDate } = req.body;
+    if (!company || !['workjapan', 'nyuuly'].includes(company)) {
+      return res.status(400).json({ error: 'Valid company is required' });
+    }
+    if (!dataThroughDate || !/^\d{4}-\d{2}-\d{2}$/.test(dataThroughDate)) {
+      return res.status(400).json({ error: 'Valid dataThroughDate (YYYY-MM-DD) is required' });
+    }
+
+    const parsed = parseIsoDateLocal(dataThroughDate);
+    if (Number.isNaN(parsed.getTime())) {
+      return res.status(400).json({ error: 'Invalid date' });
+    }
+
+    db.prepare(`
+      INSERT INTO company_data_coverage (company, data_through_date, updated_at)
+      VALUES (?, ?, datetime('now'))
+      ON CONFLICT(company) DO UPDATE SET
+        data_through_date = excluded.data_through_date,
+        updated_at = datetime('now')
+    `).run(company, dataThroughDate);
+
+    const monthKey = monthKeyFromDate(parsed);
+    const meta = getDataCoverageMeta(company, monthKey);
+    res.json({
+      success: true,
+      company,
+      dataThroughDate,
+      monthKey,
+      label: meta?.label ?? null,
+      applies: Boolean(meta?.applies),
+    });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
@@ -2622,7 +3222,8 @@ app.post('/api/manual/applicants', uploadLimiter, (req, res) => {
 
 app.get('/api/social', (req, res) => {
   const { company, start, end } = req.query;
-  const { clause, params } = buildSocialQuery(company, start, end);
+  const effectiveEnd = resolveQueryEndForCoverage(company, start, end);
+  const { clause, params } = buildSocialQuery(company, start, effectiveEnd);
 
   const posts = db.prepare(`SELECT * FROM social_posts ${clause} ORDER BY publish_time DESC`).all(...params);
 
@@ -2683,6 +3284,7 @@ app.get('/api/social', (req, res) => {
 
 app.get('/api/funnel', (req, res) => {
   const { company, start, end } = req.query;
+  const effectiveEnd = resolveQueryEndForCoverage(company, start, end);
   let clause = 'WHERE 1=1';
   const params = [];
 
@@ -2691,9 +3293,9 @@ app.get('/api/funnel', (req, res) => {
     params.push(company);
   }
 
-  if (start && end) {
+  if (start && effectiveEnd) {
     const startCompact = start.replace(/-/g, '');
-    const endCompact = end.replace(/-/g, '');
+    const endCompact = effectiveEnd.replace(/-/g, '');
     clause += ` AND (
       (substr(date_range, 1, 8) <= ? AND substr(date_range, 10, 8) >= ?)
       OR date_range IS NULL
@@ -2702,35 +3304,37 @@ app.get('/api/funnel', (req, res) => {
   }
 
   const rawRows = db.prepare(`SELECT * FROM funnel_data ${clause} ORDER BY step, device_category`).all(...params);
-  const rows = start && end ? prorateFunnelRows(rawRows, start, end) : rawRows;
+  const rows = start && effectiveEnd ? prorateFunnelRows(rawRows, start, effectiveEnd) : rawRows;
 
   const step1Devices = rows.filter(
     (r) => r.step && r.step.includes('First open') && r.device_category !== 'Total'
   );
 
-  res.json({ rows, step1Devices, filter: { company, start, end } });
+  res.json({ rows, step1Devices, filter: { company, start, end: effectiveEnd || end } });
 });
 
 app.get('/api/users', (req, res) => {
   const { company, start, end } = req.query;
-  const { clause, params } = buildGa4DateQuery(company, start, end);
+  const effectiveEnd = resolveQueryEndForCoverage(company, start, end);
+  const { clause, params } = buildGa4DateQuery(company, start, effectiveEnd);
 
   const rawRows = db.prepare(`SELECT * FROM user_acquisition ${clause} ORDER BY total_users DESC`).all(...params);
-  const rows = start && end ? prorateUsersRows(rawRows, start, end) : rawRows;
+  const rows = start && effectiveEnd ? prorateUsersRows(rawRows, start, effectiveEnd) : rawRows;
   const kpis = usersKpisFromRows(rows);
   const sourceBreakdown = websiteUsersSourceBreakdown(rows);
 
-  res.json({ rows, kpis, sourceBreakdown, filter: { company, start, end } });
+  res.json({ rows, kpis, sourceBreakdown, filter: { company, start, end: effectiveEnd || end } });
 });
 
 app.get('/api/pages', (req, res) => {
   const { company, start, end } = req.query;
-  const { clause, params } = buildGa4DateQuery(company, start, end);
+  const effectiveEnd = resolveQueryEndForCoverage(company, start, end);
+  const { clause, params } = buildGa4DateQuery(company, start, effectiveEnd);
 
   const rawRows = db.prepare(`SELECT * FROM pages_screens ${clause} ORDER BY views DESC`).all(...params);
-  const rows = start && end ? proratePagesRows(rawRows, start, end) : rawRows;
+  const rows = start && effectiveEnd ? proratePagesRows(rawRows, start, effectiveEnd) : rawRows;
 
-  res.json({ rows, filter: { company, start, end } });
+  res.json({ rows, filter: { company, start, end: effectiveEnd || end } });
 });
 
 app.get('/api/social-channels/history', (req, res) => {
@@ -2798,13 +3402,17 @@ app.get('/api/compass-uses-flow', (req, res) => {
   const months = getAvailableMonths(company);
   const idx = months.indexOf(monthKey);
   const prevKey = idx > 0 ? months[idx - 1] : null;
-  const flow = buildCompassUsesFlow(company, monthKey, prevKey);
+  const coverageMeta = getDataCoverageMeta(company, monthKey);
+  const flow = buildCompassUsesFlow(company, monthKey, prevKey, coverageMeta);
 
   res.json({
     ...flow,
     filter: { company, start, end, month: monthKey },
     prevMonth: prevKey,
     prevMonthLabel: prevKey ? monthKeyLabel(prevKey) : null,
+    dataCoverage: coverageMeta?.applies
+      ? { label: coverageMeta.label, dataThroughDate: coverageMeta.dataThroughDate }
+      : null,
   });
 });
 
@@ -2879,13 +3487,17 @@ app.get('/api/mobile-sim-flow', (req, res) => {
   const months = getAvailableMonths(company);
   const idx = months.indexOf(monthKey);
   const prevKey = idx > 0 ? months[idx - 1] : null;
-  const steps = buildMobileSimFlowSteps(company, monthKey, prevKey);
+  const coverageMeta = getDataCoverageMeta(company, monthKey);
+  const steps = buildMobileSimFlowSteps(company, monthKey, prevKey, coverageMeta);
 
   res.json({
     steps,
     filter: { company, start, end, month: monthKey },
     prevMonth: prevKey,
     prevMonthLabel: prevKey ? monthKeyLabel(prevKey) : null,
+    dataCoverage: coverageMeta?.applies
+      ? { label: coverageMeta.label, dataThroughDate: coverageMeta.dataThroughDate }
+      : null,
   });
 });
 
@@ -3605,15 +4217,8 @@ app.get('/api/monthly', (req, res) => {
   const idx = months.indexOf(month);
   const prevMonth = idx > 0 ? months[idx - 1] : null;
 
-  const current = monthlyKpisForMonth(company, month);
-  const previous = prevMonth ? monthlyKpisForMonth(company, prevMonth) : null;
-
-  const kpis = {};
-  for (const key of Object.keys(current)) {
-    const value = current[key] || 0;
-    const prevValue = previous ? (previous[key] || 0) : null;
-    kpis[key] = { value, prevValue, deltaPct: deltaPct(value, prevValue) };
-  }
+  const coverageMeta = getDataCoverageMeta(company, month);
+  const kpis = buildKpisMapWithProration(company, month, prevMonth, coverageMeta);
 
   res.json({
     month,
@@ -3623,6 +4228,15 @@ app.get('/api/monthly', (req, res) => {
     kpis,
     months: months.map((key) => ({ key, label: monthKeyLabel(key) })),
     filter: { company, month },
+    dataCoverage: coverageMeta?.applies
+      ? {
+        company,
+        dataThroughDate: coverageMeta.dataThroughDate,
+        dayOfMonth: coverageMeta.dayOfMonth,
+        ratio: coverageMeta.ratio,
+        label: coverageMeta.label,
+      }
+      : null,
   });
 });
 

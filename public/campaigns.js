@@ -374,6 +374,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.body.classList.toggle('company-workjapan', state.company === 'workjapan');
   document.body.classList.toggle('company-nyuuly', state.company === 'nyuuly');
   loadLastUpdated();
+  if (typeof loadNavDataCoverageAll === 'function') loadNavDataCoverageAll();
   initControls();
   await loadMonths();
   await loadCampaigns();
