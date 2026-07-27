@@ -19,6 +19,8 @@ let state = {
   availableMonths: [],
 };
 
+let dashboardLoadId = 0;
+
 let socialPosts = [];
 let socialPage = 1;
 let pagesData = [];
@@ -347,9 +349,13 @@ function getDateRange() {
 }
 
 function buildQuery() {
-  const { start, end } = getDateRange();
+  return buildQueryFor(state.company, state.month);
+}
+
+function buildQueryFor(company, month) {
+  const { start, end } = monthToRange(month);
   const params = new URLSearchParams();
-  params.set('company', state.company);
+  params.set('company', company);
   if (start) params.set('start', start);
   if (end) params.set('end', end);
   return params.toString();
@@ -2273,7 +2279,9 @@ function renderTopContentTable(topPosts) {
   const tbody = table.querySelector('tbody');
   thead.innerHTML = '<tr><th>#</th><th>Account</th><th>Description</th><th>Type</th><th>Views</th><th>Reach</th><th>Engagement</th><th>Link</th></tr>';
 
-  const posts = (topPosts || []).slice(0, 10);
+  const posts = (topPosts || [])
+    .filter((p) => !p.company || p.company === state.company)
+    .slice(0, 10);
   tbody.innerHTML = posts.length
     ? posts.map((p, i) => `
       <tr>
@@ -2701,31 +2709,38 @@ function renderPagination(containerId, current, total, onChange) {
 }
 
 async function loadDashboard() {
+  const loadId = ++dashboardLoadId;
+  const company = state.company;
+
   await loadAvailableMonths();
+  if (loadId !== dashboardLoadId) return;
+
   if (!state.month) {
     updateFilterLabel();
     document.body.classList.remove('is-loading');
     return;
   }
 
-  const q = buildQuery();
+  const activeMonth = state.month;
+  const q = buildQueryFor(company, activeMonth);
   document.body.classList.add('is-loading');
   updateCompanyLayout();
+  renderTopContentTable([]);
 
   try {
-    const isWorkJapan = state.company === 'workjapan';
-    const monthQ = new URLSearchParams({ company: state.company, month: state.month });
+    const isWorkJapan = company === 'workjapan';
+    const monthQ = new URLSearchParams({ company, month: activeMonth });
 
     const fetches = [
       fetchJSON(`/api/social?${q}`),
       fetchJSON(`/api/users?${q}`),
       fetchJSON(`/api/pages?${q}`),
       fetchJSON(`/api/journeys?${q}`),
-      fetchJSON(`/api/dashboard-guide?company=${state.company}`),
+      fetchJSON(`/api/dashboard-guide?company=${company}`),
       fetchJSON(`/api/search-console?${q}`),
       fetchJSON(`/api/monthly?${monthQ.toString()}`),
       fetchJSON(`/api/social-channels?${q}`),
-      fetchJSON(`/api/social-channels/history?company=${state.company}`),
+      fetchJSON(`/api/social-channels/history?company=${company}`),
     ];
     if (isWorkJapan) {
       fetches.push(fetchJSON(`/api/platform-stats?${q}`));
@@ -2734,13 +2749,15 @@ async function loadDashboard() {
     }
 
     const results = await Promise.all(fetches);
+    if (loadId !== dashboardLoadId) return;
+
     const [social, users, pages, journeys, guide, gsc, monthly, socialChannels, socialChannelHistory, platform, applicants, intelligence] = isWorkJapan
       ? results
       : [...results.slice(0, 9), null, null, null];
 
     const deltas = monthly?.kpis || {};
     updateCoverageNote(monthly);
-    if (typeof loadNavDataCoverage === 'function') loadNavDataCoverage(state.company);
+    if (typeof loadNavDataCoverage === 'function') loadNavDataCoverage(company);
 
     updateFilterLabel(journeys.filter || social.filter);
     renderFunnelNav(guide);
@@ -2750,22 +2767,25 @@ async function loadDashboard() {
     renderGscQueriesTable(gsc);
 
     const brandMessage = await fetchJSONSafe(`/api/brand-message?${q}`, { message: '' });
+    if (loadId !== dashboardLoadId) return;
     renderBrandMessage(brandMessage, monthly);
 
     const [usersHistory, appDownloadsHistory] = await Promise.all([
-      fetchJSONSafe(`/api/users/history?company=${state.company}`, { history: [] }),
-      fetchJSONSafe(`/api/app-downloads/history?company=${state.company}`, { history: [] }),
+      fetchJSONSafe(`/api/users/history?company=${company}`, { history: [] }),
+      fetchJSONSafe(`/api/app-downloads/history?company=${company}`, { history: [] }),
     ]);
+    if (loadId !== dashboardLoadId) return;
     renderConsiderationAudienceCharts(usersHistory, appDownloadsHistory, deltas, monthly);
     renderConsiderationInsights(journeys.consideration);
 
     if (isWorkJapan) {
       const [platformRegHistory, applicantHistory, workjapanProfileStats, workjapanProfileHistory] = await Promise.all([
-        fetchJSONSafe(`/api/platform-stats/history?company=${state.company}`, { history: [] }),
-        fetchJSONSafe(`/api/applicant-stats/history?company=${state.company}`, { history: [] }),
+        fetchJSONSafe(`/api/platform-stats/history?company=${company}`, { history: [] }),
+        fetchJSONSafe(`/api/applicant-stats/history?company=${company}`, { history: [] }),
         fetchJSONSafe(`/api/workjapan-profile-stats?${q}`, { kpis: {} }),
-        fetchJSONSafe(`/api/workjapan-profile-stats/history?company=${state.company}`, { history: [] }),
+        fetchJSONSafe(`/api/workjapan-profile-stats/history?company=${company}`, { history: [] }),
       ]);
+      if (loadId !== dashboardLoadId) return;
       renderFunnelPipeline(journeys, platform, applicants, social, users, deltas);
       const regContext = {
         funnelMetrics: {
@@ -2799,14 +2819,15 @@ async function loadDashboard() {
     } else {
       const [nyuulyCommitStats, nyuulyCommitHistory, nyuulyResultStats, nyuulyResultHistory, mobileSimFlow, mobileSimFlowHistory, compassUsesFlow, compassUsesHistory] = await Promise.all([
         fetchJSONSafe(`/api/nyuuly-commit-stats?${q}`, { kpis: {} }),
-        fetchJSONSafe(`/api/nyuuly-commit-stats/history?company=${state.company}`, { history: [] }),
+        fetchJSONSafe(`/api/nyuuly-commit-stats/history?company=${company}`, { history: [] }),
         fetchJSONSafe(`/api/nyuuly-result-stats?${q}`, { kpis: {} }),
-        fetchJSONSafe(`/api/nyuuly-result-stats/history?company=${state.company}`, { history: [] }),
+        fetchJSONSafe(`/api/nyuuly-result-stats/history?company=${company}`, { history: [] }),
         fetchJSONSafe(`/api/mobile-sim-flow?${q}`, { steps: [] }),
-        fetchJSONSafe(`/api/mobile-sim-flow/history?company=${state.company}`, { history: [] }),
+        fetchJSONSafe(`/api/mobile-sim-flow/history?company=${company}`, { history: [] }),
         fetchJSONSafe(`/api/compass-uses-flow?${q}`, { categories: [] }),
-        fetchJSONSafe(`/api/compass-uses-flow/history?company=${state.company}`, { history: [] }),
+        fetchJSONSafe(`/api/compass-uses-flow/history?company=${company}`, { history: [] }),
       ]);
+      if (loadId !== dashboardLoadId) return;
       renderNyuulyCommitSection(nyuulyCommitStats, nyuulyCommitHistory, deltas, monthly);
       renderMobileSimFlowSection(mobileSimFlow, mobileSimFlowHistory, monthly);
       renderCompassUsesFlowSection(compassUsesFlow, compassUsesHistory, monthly);
@@ -2837,8 +2858,11 @@ async function loadDashboard() {
     renderPagesTable();
   } catch (err) {
     console.error('Dashboard load error:', err);
+    if (loadId === dashboardLoadId) renderTopContentTable([]);
   } finally {
-    document.body.classList.remove('is-loading');
+    if (loadId === dashboardLoadId) {
+      document.body.classList.remove('is-loading');
+    }
   }
 }
 
@@ -2851,12 +2875,12 @@ function initControls() {
     state.company = btn.dataset.company;
     sessionStorage.setItem('analyticsCompany', state.company);
     await loadAvailableMonths(true);
-    loadDashboard();
+    await loadDashboard();
   });
 
-  document.getElementById('monthSelect').addEventListener('change', (e) => {
+  document.getElementById('monthSelect').addEventListener('change', async (e) => {
     state.month = e.target.value;
-    loadDashboard();
+    await loadDashboard();
   });
 
   document.querySelectorAll('.section-header').forEach(header => {
@@ -2880,6 +2904,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const urlHash = window.location.hash;
 
   if (urlCompany === 'nyuuly' || urlCompany === 'workjapan') {
+    state.company = urlCompany;
     sessionStorage.setItem('analyticsCompany', urlCompany);
     document.querySelectorAll('#companyTabs .tab-btn').forEach((b) => {
       b.classList.toggle('active', b.dataset.company === urlCompany);

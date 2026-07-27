@@ -177,7 +177,9 @@ function parsePublishTime(val) {
   return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')} ${hh.padStart(2, '0')}:${min}:00`;
 }
 
-function parseSocialCsv(content, company) {
+function parseSocialCsv(content, company, monthKey = null) {
+  clearSocialPostsForUpload(company, monthKey);
+
   const rows = parse(content, {
     columns: true,
     relax_column_count: true,
@@ -187,7 +189,7 @@ function parseSocialCsv(content, company) {
   });
 
   const stmt = db.prepare(`
-    INSERT OR IGNORE INTO social_posts
+    INSERT OR REPLACE INTO social_posts
     (company, post_id, account_name, account_username, description, post_type, publish_time, permalink,
      views, reach, likes, shares, follows, comments, saves)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -225,7 +227,7 @@ function parseSocialCsv(content, company) {
   return { added, skipped };
 }
 
-function parseFunnelCsv(content, company, override) {
+function parseFunnelCsv(content, company, override, monthKey = null) {
   const lines = content.split('\n');
   let dateRange = override?.dateRange || null;
 
@@ -241,12 +243,14 @@ function parseFunnelCsv(content, company, override) {
     }
   }
 
+  clearFunnelRowsForUpload(company, dateRange, monthKey);
+
   const dataLines = lines.filter((l) => !l.trim().startsWith('#') && l.trim() !== '');
   const csvContent = dataLines.join('\n');
   const rows = parse(csvContent, { columns: true, skip_empty_lines: true, bom: true });
 
   const stmt = db.prepare(`
-    INSERT OR IGNORE INTO funnel_data
+    INSERT INTO funnel_data
     (company, date_range, step, device_category, active_users, completion_rate, abandonments, abandonment_rate)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
@@ -295,6 +299,55 @@ function monthRangeFromKey(month) {
     endDate: `${year}-${mm}-${dd}`,
     dateRange: `${year}${mm}01-${year}${mm}${dd}`,
   };
+}
+
+const GA4_DATED_TABLES = new Set(['pages_screens', 'user_acquisition', 'traffic_acquisition']);
+
+function clearGa4RowsForUpload(table, company, startDate, endDate, monthKey = null) {
+  if (!GA4_DATED_TABLES.has(table) || !company || !startDate || !endDate) return;
+
+  const monthRange = monthKey ? monthRangeFromKey(monthKey) : null;
+  const clearStart = monthRange?.startDate || startDate;
+  const clearEnd = monthRange?.endDate || endDate;
+
+  db.prepare(`
+    DELETE FROM ${table}
+    WHERE company = ?
+      AND start_date <= ?
+      AND end_date >= ?
+  `).run(company, clearEnd, clearStart);
+}
+
+function clearFunnelRowsForUpload(company, dateRange, monthKey = null) {
+  if (!company || !dateRange) return;
+
+  if (monthKey) {
+    const monthRange = monthRangeFromKey(monthKey);
+    if (monthRange?.dateRange) {
+      db.prepare(`
+        DELETE FROM funnel_data
+        WHERE company = ? AND date_range = ?
+      `).run(company, monthRange.dateRange);
+      return;
+    }
+  }
+
+  db.prepare(`
+    DELETE FROM funnel_data
+    WHERE company = ? AND date_range = ?
+  `).run(company, dateRange);
+}
+
+function clearSocialPostsForUpload(company, monthKey = null) {
+  if (!company) return;
+
+  if (monthKey) {
+    db.prepare(`
+      DELETE FROM social_posts
+      WHERE company = ? AND strftime('%Y-%m', publish_time) = ?
+    `).run(company, monthKey);
+    return;
+  }
 }
 
 /** GSC CSV CTR values are always percentages (e.g. "0.11%" → 0.0011 as a fraction). */
@@ -450,16 +503,18 @@ function getUsersChannel(row) {
   return key ? row[key] : null;
 }
 
-function parseUsersCsv(content, company, override) {
+function parseUsersCsv(content, company, override, monthKey = null) {
   const header = parseGa4Header(content);
   const startDate = override?.startDate || header.startDate;
   const endDate = override?.endDate || header.endDate;
+  clearGa4RowsForUpload('user_acquisition', company, startDate, endDate, monthKey);
+
   const lines = content.split('\n');
   const dataLines = lines.filter((l) => !l.trim().startsWith('#') && l.trim() !== '');
   const rows = parse(dataLines.join('\n'), { columns: true, skip_empty_lines: true, bom: true });
 
   const stmt = db.prepare(`
-    INSERT OR IGNORE INTO user_acquisition
+    INSERT INTO user_acquisition
     (company, start_date, end_date, channel_group, total_users, new_users, returning_users,
      avg_engagement_time, engaged_sessions_per_user, event_count, key_events, user_key_event_rate)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -499,14 +554,18 @@ function getTrafficChannel(row) {
   return key ? row[key] : null;
 }
 
-function parseTrafficCsv(content, company) {
-  const { startDate, endDate } = parseGa4Header(content);
+function parseTrafficCsv(content, company, override = null, monthKey = null) {
+  const header = parseGa4Header(content);
+  const startDate = override?.startDate || header.startDate;
+  const endDate = override?.endDate || header.endDate;
+  clearGa4RowsForUpload('traffic_acquisition', company, startDate, endDate, monthKey);
+
   const lines = content.split('\n');
   const dataLines = lines.filter((l) => !l.trim().startsWith('#') && l.trim() !== '');
   const rows = parse(dataLines.join('\n'), { columns: true, skip_empty_lines: true, bom: true });
 
   const stmt = db.prepare(`
-    INSERT OR IGNORE INTO traffic_acquisition
+    INSERT INTO traffic_acquisition
     (company, start_date, end_date, channel_group, sessions, engaged_sessions, engagement_rate,
      avg_engagement_time, events_per_session, event_count, key_events, session_key_event_rate, total_revenue)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -542,16 +601,18 @@ function parseTrafficCsv(content, company) {
   return { added, skipped };
 }
 
-function parsePagesCsv(content, company, override) {
+function parsePagesCsv(content, company, override, monthKey = null) {
   const header = parseGa4Header(content);
   const startDate = override?.startDate || header.startDate;
   const endDate = override?.endDate || header.endDate;
+  clearGa4RowsForUpload('pages_screens', company, startDate, endDate, monthKey);
+
   const lines = content.split('\n');
   const dataLines = lines.filter((l) => !l.trim().startsWith('#') && l.trim() !== '');
   const rows = parse(dataLines.join('\n'), { columns: true, skip_empty_lines: true, bom: true });
 
   const stmt = db.prepare(`
-    INSERT OR IGNORE INTO pages_screens
+    INSERT INTO pages_screens
     (company, start_date, end_date, page_path, views, active_users, views_per_user,
      avg_engagement_time, event_count, key_events, total_revenue)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -677,12 +738,13 @@ function parseApplicantsCsv(content, company) {
   return { added, skipped };
 }
 
-function parseCsv(content, fileType, company, override) {
+function parseCsv(content, fileType, company, override, monthKey = null) {
   switch (fileType) {
-    case 'social': return parseSocialCsv(content, company);
-    case 'funnel': return parseFunnelCsv(content, company, override);
-    case 'users': return parseUsersCsv(content, company, override);
-    case 'pages': return parsePagesCsv(content, company, override);
+    case 'social': return parseSocialCsv(content, company, monthKey);
+    case 'funnel': return parseFunnelCsv(content, company, override, monthKey);
+    case 'users': return parseUsersCsv(content, company, override, monthKey);
+    case 'pages': return parsePagesCsv(content, company, override, monthKey);
+    case 'traffic': return parseTrafficCsv(content, company, override, monthKey);
     case 'platform': return parsePlatformCsv(content, company);
     case 'applicants': return parseApplicantsCsv(content, company);
     default: throw new Error('Unknown file type');
@@ -2824,7 +2886,8 @@ app.post('/api/upload', uploadLimiter, upload.single('file'), (req, res) => {
       }
     }
 
-    const { added, skipped } = parseCsv(content, fileType, company, override);
+    const monthKey = req.body.month || null;
+    const { added, skipped } = parseCsv(content, fileType, company, override, monthKey);
     logUpload(req.file.originalname, company, fileType, added, skipped);
     fs.unlinkSync(req.file.path);
 
