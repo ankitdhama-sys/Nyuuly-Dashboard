@@ -22,26 +22,50 @@ function formatPct(n) {
   return `${Number(n).toFixed(1)}%`;
 }
 
-function deltaBadge(metric) {
+function metricDeltaChip(pct, { prorated = false, title = '' } = {}) {
+  if (pct == null) return '';
+  const dir = pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat';
+  const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '';
+  const cls = `kpi-delta ${prorated ? 'kpi-delta-prorated ' : ''}kpi-delta-${dir}`;
+  const tip = title ? ` title="${title}"` : '';
+  return `<span class="${cls}"${tip}>${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+}
+
+function metricDeltasHtml(metric) {
   if (!metric) return '';
-  const d = metric.deltaPct;
-  const hasProrated = metric.proratedDeltaPct != null;
-  let html = '';
-  if (d == null) {
-    if (!hasProrated) html = '<span class="kpi-delta kpi-delta-flat">— no prev</span>';
-  } else if (d > 0) html = `<span class="kpi-delta kpi-delta-up" title="Full month vs prior full month">▲ ${Math.abs(d).toFixed(1)}%</span>`;
-  else if (d < 0) html = `<span class="kpi-delta kpi-delta-down" title="Full month vs prior full month">▼ ${Math.abs(d).toFixed(1)}%</span>`;
-  else html = '<span class="kpi-delta kpi-delta-flat" title="Full month vs prior full month">0.0%</span>';
-  if (hasProrated) {
-    const pd = metric.proratedDeltaPct;
-    const tip = metric.prevProratedValue != null
-      ? ` title="Same period last month baseline: ${Number(metric.prevProratedValue).toLocaleString()}"`
-      : ' title="Compared to the same number of days last month"';
-    if (pd > 0) html += `<span class="kpi-delta kpi-delta-prorated kpi-delta-up"${tip}>▲ ${Math.abs(pd).toFixed(1)}% same period</span>`;
-    else if (pd < 0) html += `<span class="kpi-delta kpi-delta-prorated kpi-delta-down"${tip}>▼ ${Math.abs(pd).toFixed(1)}% same period</span>`;
-    else html += `<span class="kpi-delta kpi-delta-prorated kpi-delta-flat"${tip}>0.0% same period</span>`;
+  const rows = [];
+  if (metric.deltaPct != null) {
+    rows.push(`
+      <div class="metric-delta-row">
+        <span class="metric-delta-label">Full month</span>
+        ${metricDeltaChip(metric.deltaPct, { title: 'Full month vs prior full month' })}
+      </div>
+    `);
   }
-  return html ? `<div class="kpi-delta-stack">${html}</div>` : '';
+  if (metric.proratedDeltaPct != null) {
+    const tip = metric.prevProratedValue != null
+      ? `Same-period baseline: ${Number(metric.prevProratedValue).toLocaleString()}`
+      : 'Compared to the same number of days last month';
+    rows.push(`
+      <div class="metric-delta-row">
+        <span class="metric-delta-label">Same period</span>
+        ${metricDeltaChip(metric.proratedDeltaPct, { prorated: true, title: tip })}
+      </div>
+    `);
+  }
+  if (!rows.length && metric.prevValue == null) {
+    rows.push(`
+      <div class="metric-delta-row">
+        <span class="metric-delta-label">MoM</span>
+        <span class="kpi-delta kpi-delta-flat">—</span>
+      </div>
+    `);
+  }
+  return rows.length ? `<div class="metric-delta-rows">${rows.join('')}</div>` : '';
+}
+
+function deltaBadge(metric) {
+  return metricDeltasHtml(metric);
 }
 
 function destroyChart(id) {
@@ -129,46 +153,8 @@ function funnelUserSourceLine(pct, users, description) {
   </div>`;
 }
 
-function awarenessDeltaChip(pct, { prorated = false, title = '' } = {}) {
-  if (pct == null) return '';
-  const dir = pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat';
-  const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '';
-  const cls = `kpi-delta ${prorated ? 'kpi-delta-prorated ' : ''}kpi-delta-${dir}`;
-  const tip = title ? ` title="${title}"` : '';
-  return `<span class="${cls}"${tip}>${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
-}
-
 function awarenessMetricDeltasHtml(metric) {
-  if (!metric) return '';
-  const rows = [];
-  if (metric.deltaPct != null) {
-    rows.push(`
-      <div class="pipeline-awareness-delta-row">
-        <span class="pipeline-awareness-delta-label">Full month</span>
-        ${awarenessDeltaChip(metric.deltaPct, { title: 'Full month vs prior full month' })}
-      </div>
-    `);
-  }
-  if (metric.proratedDeltaPct != null) {
-    const tip = metric.prevProratedValue != null
-      ? `Same-period baseline: ${Number(metric.prevProratedValue).toLocaleString()}`
-      : 'Compared to the same number of days last month';
-    rows.push(`
-      <div class="pipeline-awareness-delta-row">
-        <span class="pipeline-awareness-delta-label">Same period</span>
-        ${awarenessDeltaChip(metric.proratedDeltaPct, { prorated: true, title: tip })}
-      </div>
-    `);
-  }
-  if (!rows.length && metric.prevValue == null) {
-    rows.push(`
-      <div class="pipeline-awareness-delta-row">
-        <span class="pipeline-awareness-delta-label">MoM</span>
-        <span class="kpi-delta kpi-delta-flat">—</span>
-      </div>
-    `);
-  }
-  return rows.length ? `<div class="pipeline-awareness-deltas">${rows.join('')}</div>` : '';
+  return metricDeltasHtml(metric);
 }
 
 function renderAwarenessMetricsHtml(gsc, social, gscMetric, socialMetric) {

@@ -61,55 +61,64 @@ function wrapDeltaStack(html) {
   return `<div class="kpi-delta-stack">${html}</div>`;
 }
 
+function metricDeltaChip(pct, { prorated = false, title = '' } = {}) {
+  if (pct == null) return '';
+  const dir = pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat';
+  const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '';
+  const cls = `kpi-delta ${prorated ? 'kpi-delta-prorated ' : ''}kpi-delta-${dir}`;
+  const tip = title ? ` title="${title}"` : '';
+  return `<span class="${cls}"${tip}>${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+}
+
+/** Labeled Full month + Same period rows for any metric block from /api/monthly. */
+function metricDeltasHtml(metric) {
+  if (!metric) return '';
+  const rows = [];
+  if (metric.deltaPct != null) {
+    rows.push(`
+      <div class="metric-delta-row">
+        <span class="metric-delta-label">Full month</span>
+        ${metricDeltaChip(metric.deltaPct, { title: 'Full month vs prior full month' })}
+      </div>
+    `);
+  }
+  if (metric.proratedDeltaPct != null) {
+    const tip = metric.prevProratedValue != null
+      ? `Same-period baseline: ${Number(metric.prevProratedValue).toLocaleString()}`
+      : 'Compared to the same number of days last month';
+    rows.push(`
+      <div class="metric-delta-row">
+        <span class="metric-delta-label">Same period</span>
+        ${metricDeltaChip(metric.proratedDeltaPct, { prorated: true, title: tip })}
+      </div>
+    `);
+  }
+  if (!rows.length && metric.prevValue == null) {
+    rows.push(`
+      <div class="metric-delta-row">
+        <span class="metric-delta-label">MoM</span>
+        <span class="kpi-delta kpi-delta-flat">—</span>
+      </div>
+    `);
+  }
+  return rows.length ? `<div class="metric-delta-rows">${rows.join('')}</div>` : '';
+}
+
 /** Returns a month-over-month delta badge for the given metric key. */
 function deltaBadge(deltas, key) {
-  if (!deltas || !deltas[key]) return '';
-  const d = deltas[key].deltaPct;
-  const hasProrated = deltas[key].proratedDeltaPct != null;
-  let html = '';
-  if (d == null) {
-    // Manual MTD / excluded rates: skip full-month badge when same-period exists
-    if (!hasProrated) html = '<span class="kpi-delta kpi-delta-flat">— no prev</span>';
-  } else if (d > 0) html = `<span class="kpi-delta kpi-delta-up" title="Full month vs prior full month">▲ ${Math.abs(d).toFixed(1)}%</span>`;
-  else if (d < 0) html = `<span class="kpi-delta kpi-delta-down" title="Full month vs prior full month">▼ ${Math.abs(d).toFixed(1)}%</span>`;
-  else html = '<span class="kpi-delta kpi-delta-flat" title="Full month vs prior full month">0.0%</span>';
-  return wrapDeltaStack(html + proratedDeltaBadge(deltas, key));
+  return metricDeltasHtml(deltas?.[key]);
 }
 
 function proratedDeltaBadge(deltas, key) {
-  if (!deltas?.[key] || deltas[key].proratedDeltaPct == null) return '';
-  const d = deltas[key].proratedDeltaPct;
-  const baseline = deltas[key].prevProratedValue;
-  const tip = baseline != null
-    ? ` title="Same period last month baseline: ${Number(baseline).toLocaleString()}"`
-    : ' title="Compared to the same number of days last month"';
-  if (d > 0) return `<span class="kpi-delta kpi-delta-prorated kpi-delta-up"${tip}>▲ ${Math.abs(d).toFixed(1)}% same period</span>`;
-  if (d < 0) return `<span class="kpi-delta kpi-delta-prorated kpi-delta-down"${tip}>▼ ${Math.abs(d).toFixed(1)}% same period</span>`;
-  return `<span class="kpi-delta kpi-delta-prorated kpi-delta-flat"${tip}>0.0% same period</span>`;
+  return metricDeltasHtml(deltas?.[key]);
 }
 
 function proratedDeltaBadgeMetric(metric) {
-  if (!metric || metric.proratedDeltaPct == null) return '';
-  const d = metric.proratedDeltaPct;
-  const tip = metric.prevProratedValue != null
-    ? ` title="Same period last month baseline: ${Number(metric.prevProratedValue).toLocaleString()}"`
-    : ' title="Compared to the same number of days last month"';
-  if (d > 0) return `<span class="kpi-delta kpi-delta-prorated kpi-delta-up"${tip}>▲ ${Math.abs(d).toFixed(1)}% same period</span>`;
-  if (d < 0) return `<span class="kpi-delta kpi-delta-prorated kpi-delta-down"${tip}>▼ ${Math.abs(d).toFixed(1)}% same period</span>`;
-  return `<span class="kpi-delta kpi-delta-prorated kpi-delta-flat"${tip}>0.0% same period</span>`;
+  return metricDeltasHtml(metric);
 }
 
 function deltaBadgeMoM(deltas, key) {
-  if (!deltas || !deltas[key]) return '';
-  const d = deltas[key].deltaPct;
-  const hasProrated = deltas[key].proratedDeltaPct != null;
-  let html = '';
-  if (d == null) {
-    if (!hasProrated) html = '<span class="kpi-delta kpi-delta-flat">— no prior month</span>';
-  } else if (d > 0) html = `<span class="kpi-delta kpi-delta-up" title="Full month vs prior full month">▲ ${Math.abs(d).toFixed(1)}%</span>`;
-  else if (d < 0) html = `<span class="kpi-delta kpi-delta-down" title="Full month vs prior full month">▼ ${Math.abs(d).toFixed(1)}%</span>`;
-  else html = '<span class="kpi-delta kpi-delta-flat" title="Full month vs prior full month">0.0%</span>';
-  return wrapDeltaStack(html + proratedDeltaBadge(deltas, key));
+  return deltaBadge(deltas, key);
 }
 
 function monthToRange(monthVal) {
@@ -204,65 +213,30 @@ function combinedDeltaBadge(deltas, keys) {
   const hasPrev = keys.some((key) => deltas[key]?.prevValue != null);
   const prev = hasPrev ? keys.reduce((sum, key) => sum + (deltas[key]?.prevValue || 0), 0) : null;
   const hasProrated = keys.some((key) => deltas[key]?.prevProratedValue != null);
-  let html = '';
-  if (prev == null || prev === 0) {
-    if (!hasProrated) html = '<span class="kpi-delta kpi-delta-flat">— no prev</span>';
-  } else {
-    const d = Math.round(((current - prev) / prev) * 1000) / 10;
-    if (d > 0) html = `<span class="kpi-delta kpi-delta-up" title="Full month vs prior full month">▲ ${Math.abs(d).toFixed(1)}%</span>`;
-    else if (d < 0) html = `<span class="kpi-delta kpi-delta-down" title="Full month vs prior full month">▼ ${Math.abs(d).toFixed(1)}%</span>`;
-    else html = '<span class="kpi-delta kpi-delta-flat" title="Full month vs prior full month">0.0%</span>';
-  }
-  if (hasProrated) {
-    const prevProrated = keys.reduce((sum, key) => sum + (deltas[key]?.prevProratedValue ?? deltas[key]?.prevValue ?? 0), 0);
-    if (prevProrated > 0) {
-      const pd = Math.round(((current - prevProrated) / prevProrated) * 1000) / 10;
-      html += proratedDeltaBadgeMetric({ proratedDeltaPct: pd, prevProratedValue: prevProrated });
-    }
-  }
-  return wrapDeltaStack(html);
-}
+  const prevProrated = hasProrated
+    ? keys.reduce((sum, key) => sum + (deltas[key]?.prevProratedValue ?? deltas[key]?.prevValue ?? 0), 0)
+    : null;
 
-function awarenessDeltaChip(pct, { prorated = false, title = '' } = {}) {
-  if (pct == null) return '';
-  const dir = pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat';
-  const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '';
-  const cls = `kpi-delta ${prorated ? 'kpi-delta-prorated ' : ''}kpi-delta-${dir}`;
-  const tip = title ? ` title="${title}"` : '';
-  return `<span class="${cls}"${tip}>${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+  let deltaPct = null;
+  if (prev != null && prev !== 0) {
+    deltaPct = Math.round(((current - prev) / prev) * 1000) / 10;
+  }
+
+  let proratedDeltaPct = null;
+  if (prevProrated != null && prevProrated > 0) {
+    proratedDeltaPct = Math.round(((current - prevProrated) / prevProrated) * 1000) / 10;
+  }
+
+  return metricDeltasHtml({
+    deltaPct,
+    proratedDeltaPct,
+    prevValue: prev,
+    prevProratedValue: prevProrated,
+  });
 }
 
 function awarenessMetricDeltasHtml(metric) {
-  if (!metric) return '';
-  const rows = [];
-  if (metric.deltaPct != null) {
-    rows.push(`
-      <div class="pipeline-awareness-delta-row">
-        <span class="pipeline-awareness-delta-label">Full month</span>
-        ${awarenessDeltaChip(metric.deltaPct, { title: 'Full month vs prior full month' })}
-      </div>
-    `);
-  }
-  if (metric.proratedDeltaPct != null) {
-    const tip = metric.prevProratedValue != null
-      ? `Same-period baseline: ${Number(metric.prevProratedValue).toLocaleString()}`
-      : 'Compared to the same number of days last month';
-    rows.push(`
-      <div class="pipeline-awareness-delta-row">
-        <span class="pipeline-awareness-delta-label">Same period</span>
-        ${awarenessDeltaChip(metric.proratedDeltaPct, { prorated: true, title: tip })}
-      </div>
-    `);
-  }
-  if (!rows.length && metric.prevValue == null) {
-    rows.push(`
-      <div class="pipeline-awareness-delta-row">
-        <span class="pipeline-awareness-delta-label">MoM</span>
-        <span class="kpi-delta kpi-delta-flat">—</span>
-      </div>
-    `);
-  }
-  return rows.length ? `<div class="pipeline-awareness-deltas">${rows.join('')}</div>` : '';
+  return metricDeltasHtml(metric);
 }
 
 function renderAwarenessMetricsHtml(gsc, social, deltas) {
@@ -840,15 +814,7 @@ const COMPASS_USES_CATEGORIES = [
 ];
 
 function stepMoMBadge(step) {
-  const d = step?.deltaPct;
-  const hasProrated = step?.proratedDeltaPct != null;
-  let html = '';
-  if (d == null) {
-    if (!hasProrated) html = '<span class="kpi-delta kpi-delta-flat">— no prev</span>';
-  } else if (d > 0) html = `<span class="kpi-delta kpi-delta-up" title="Full month vs prior full month">▲ ${Math.abs(d).toFixed(1)}%</span>`;
-  else if (d < 0) html = `<span class="kpi-delta kpi-delta-down" title="Full month vs prior full month">▼ ${Math.abs(d).toFixed(1)}%</span>`;
-  else html = '<span class="kpi-delta kpi-delta-flat" title="Full month vs prior full month">0.0%</span>';
-  return wrapDeltaStack(html + proratedDeltaBadgeMetric(step));
+  return metricDeltasHtml(step);
 }
 
 function renderMobileSimFlowSection(flowData, historyData, monthly) {
@@ -1461,20 +1427,10 @@ function renderCommitRegistrationBlockShell(registrations) {
   `;
 }
 
-function platformRegDeltaBadge(current, previous) {
-  if (previous == null || previous === 0) {
-    return '<span class="kpi-delta kpi-delta-flat">— no prior month</span>';
-  }
-  const d = Math.round(((current - previous) / previous) * 1000) / 10;
-  if (d > 0) return `<span class="kpi-delta kpi-delta-up">▲ ${Math.abs(d).toFixed(1)}% vs last month</span>`;
-  if (d < 0) return `<span class="kpi-delta kpi-delta-down">▼ ${Math.abs(d).toFixed(1)}% vs last month</span>`;
-  return '<span class="kpi-delta kpi-delta-flat">0.0% vs last month</span>';
-}
 
 function renderCommitRegistrationCharts(regContext) {
   if (!regContext) return;
-  const { funnelMetrics, platformHistory, applicantHistory, deltas, monthly } = regContext;
-  const platHist = platformHistory?.history || [];
+  const { funnelMetrics, applicantHistory, deltas, monthly } = regContext;
   const appHist = applicantHistory?.history || [];
 
   const totalRegKpiEl = document.getElementById('commitTotalRegKpi');
@@ -1494,15 +1450,8 @@ function renderCommitRegistrationCharts(regContext) {
 
   const appKpiEl = document.getElementById('commitApplicationsKpi');
   if (appKpiEl) {
-    const monthKey = state.month;
-    const idx = appHist.findIndex((h) => h.month === monthKey);
-    const currIdx = idx >= 0 ? idx : appHist.length - 1;
-    const curr = currIdx >= 0 ? appHist[currIdx] : null;
-    const prev = currIdx > 0 ? appHist[currIdx - 1] : null;
-    const totalApps = curr?.totalApplications || 0;
-    const uniqueApps = curr?.uniqueApplicants || 0;
-    const prevTotal = prev?.totalApplications;
-    const prevUnique = prev?.uniqueApplicants;
+    const totalApps = deltas?.totalApplications?.value ?? 0;
+    const uniqueApps = deltas?.uniqueApplicants?.value ?? 0;
 
     appKpiEl.innerHTML = `
       ${monthly?.monthLabel ? `<span class="consideration-audience-period">This month: ${monthly.monthLabel}${monthly.prevMonthLabel ? ` · compared to ${monthly.prevMonthLabel}` : ''}</span>` : ''}
@@ -1510,18 +1459,18 @@ function renderCommitRegistrationCharts(regContext) {
         <div class="consideration-audience-summary">
           <span class="consideration-audience-label">Total applications</span>
           <span class="consideration-audience-value">${formatNum(totalApps)}</span>
-          ${platformRegDeltaBadge(totalApps, prevTotal)}
+          ${deltaBadgeMoM(deltas, 'totalApplications')}
         </div>
         <div class="consideration-audience-summary">
           <span class="consideration-audience-label">Unique applicants</span>
           <span class="consideration-audience-value">${formatNum(uniqueApps)}</span>
-          ${platformRegDeltaBadge(uniqueApps, prevUnique)}
+          ${deltaBadgeMoM(deltas, 'uniqueApplicants')}
         </div>
       </div>
     `;
   }
 
-  renderChartCommitTotalRegistrations(platHist);
+  renderChartCommitTotalRegistrations(regContext.platformHistory?.history || []);
   renderChartCommitApplications(appHist);
   renderCommitVerticalFunnel(funnelMetrics);
 }
@@ -2157,25 +2106,13 @@ function renderSocialSectionContribution(journeys, deltas) {
   el.innerHTML = `${formatNum(socialViews)} social channel views${deltaBadge(deltas, 'socialChannelViews')}`;
 }
 
-function valueDeltaBadge(current, prev) {
-  if (prev == null || prev === 0) {
-    return '<span class="kpi-delta kpi-delta-flat">— vs last month</span>';
-  }
-  const d = Math.round(((current - prev) / prev) * 1000) / 10;
-  if (d > 0) return `<span class="kpi-delta kpi-delta-up">▲ ${Math.abs(d).toFixed(1)}% vs last month</span>`;
-  if (d < 0) return `<span class="kpi-delta kpi-delta-down">▼ ${Math.abs(d).toFixed(1)}% vs last month</span>`;
-  return '<span class="kpi-delta kpi-delta-flat">0.0% vs last month</span>';
-}
-
-function socialChannelPrevViews(history, monthKey) {
-  const months = history || [];
-  const idx = months.findIndex((h) => h.month === monthKey);
-  const prev = idx > 0 ? months[idx - 1] : null;
-  if (!prev) return { totalViews: null, channels: {} };
-  const channels = Object.fromEntries(
-    (prev.channels || []).map((c) => [c.channel, c.views || 0]),
-  );
-  return { totalViews: prev.totalViews ?? null, channels };
+function socialChannelDeltaKey(platform) {
+  return ({
+    Facebook: 'socialChannelFacebook',
+    Instagram: 'socialChannelInstagram',
+    TikTok: 'socialChannelTikTok',
+    YouTube: 'socialChannelYouTube',
+  })[platform];
 }
 
 function renderSocialKpis(socialChannels, socialCsv, deltas, socialChannelHistory) {
@@ -2183,9 +2120,8 @@ function renderSocialKpis(socialChannels, socialCsv, deltas, socialChannelHistor
   if (!el) return;
 
   const channelMap = Object.fromEntries((socialChannels?.channels || []).map((c) => [c.channel, c.views]));
-  const manualTotal = socialChannels?.totalViews || 0;
+  const manualTotal = deltas?.socialChannelViews?.value ?? socialChannels?.totalViews ?? 0;
   const csvPosts = socialCsv?.posts?.length || 0;
-  const prev = socialChannelPrevViews(socialChannelHistory?.history, state.month);
   const platforms = ['Facebook', 'Instagram', 'TikTok', 'YouTube'];
 
   if (!manualTotal && !csvPosts) {
@@ -2197,13 +2133,13 @@ function renderSocialKpis(socialChannels, socialCsv, deltas, socialChannelHistor
     <div class="kpi-card">
       <div class="label">Total Social Views</div>
       <div class="value">${formatNum(manualTotal)}</div>
-      ${valueDeltaBadge(manualTotal, prev.totalViews)}
+      ${deltaBadge(deltas, 'socialChannelViews')}
     </div>
     ${platforms.map((platform) => `
       <div class="kpi-card">
         <div class="label">${platform}</div>
-        <div class="value">${formatNum(channelMap[platform] || 0)}</div>
-        ${valueDeltaBadge(channelMap[platform] || 0, prev.channels[platform])}
+        <div class="value">${formatNum((deltas?.[socialChannelDeltaKey(platform)]?.value ?? channelMap[platform]) || 0)}</div>
+        ${deltaBadge(deltas, socialChannelDeltaKey(platform))}
       </div>
     `).join('')}
     ${csvPosts || deltas?.postCount?.value != null ? `

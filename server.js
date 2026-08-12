@@ -61,6 +61,13 @@ const uploadLimiter = rateLimit({
 const MANUAL_FILE_TYPES = ['platform', 'applicants', 'geo', 'visa', 'nationality', 'barriers', 'social-channels'];
 
 const SOCIAL_CHANNELS = ['Facebook', 'Instagram', 'TikTok', 'YouTube'];
+
+const SOCIAL_CHANNEL_KPI_KEYS = {
+  Facebook: 'socialChannelFacebook',
+  Instagram: 'socialChannelInstagram',
+  TikTok: 'socialChannelTikTok',
+  YouTube: 'socialChannelYouTube',
+};
 const APP_DOWNLOAD_PLATFORMS = ['iOS', 'Android'];
 const PLATFORM_REG_PLATFORMS = ['Web', 'Android', 'iOS'];
 
@@ -1048,6 +1055,10 @@ const DAILY_PARTIAL_PREV_KEYS = new Set([
  */
 const MANUAL_MTD_KEYS = new Set([
   'socialChannelViews',
+  'socialChannelFacebook',
+  'socialChannelInstagram',
+  'socialChannelTikTok',
+  'socialChannelYouTube',
   'appDownloads',
   'registrations',
   'platformActiveUsers',
@@ -1183,15 +1194,17 @@ function buildKpisMapWithProration(company, monthKey, prevMonthKey, coverageMeta
       continue;
     }
 
-    // Manual MTD: uploaded current is already through the as-of date — no full month.
+    // Manual MTD: current value is month-to-date when coverage applies; show both comparisons.
     if (MANUAL_MTD_KEYS.has(key)) {
-      const prevProrated = proratePrevMonth(prevValue, coverageMeta.asOfDate);
+      const prevProrated = coverageMeta?.applies
+        ? proratePrevMonth(prevValue, coverageMeta.asOfDate)
+        : null;
       kpis[key] = {
         value,
         prevValue,
-        deltaPct: null,
+        deltaPct: deltaPct(value, prevValue),
         prevProratedValue: prevProrated != null ? Math.round(prevProrated * 1000) / 1000 : null,
-        proratedDeltaPct: deltaPct(value, prevProrated),
+        proratedDeltaPct: coverageMeta?.applies ? deltaPct(value, prevProrated) : null,
       };
       continue;
     }
@@ -1266,11 +1279,13 @@ function monthlyKpisForMonth(company, monthKey, periodOpts = {}) {
 
   const gscKpis = gscKpisFromRows(gscDaily);
 
-  const socialChannels = db.prepare(`
-    SELECT COALESCE(SUM(views), 0) AS socialChannelViews
-    FROM social_channel_views
-    WHERE ${coFilter} ${MONTH_KEY_SQL.social_channel_views} = ?
-  `).get(...withCompany());
+  const socialChannelData = getSocialChannelViewsForMonth(company, monthKey);
+  const socialChannelByKey = Object.fromEntries(
+    SOCIAL_CHANNELS.map((channel) => [
+      SOCIAL_CHANNEL_KPI_KEYS[channel],
+      socialChannelData.channels.find((row) => row.channel === channel)?.views || 0,
+    ]),
+  );
 
   const appDownloads = db.prepare(`
     SELECT COALESCE(SUM(downloads), 0) AS appDownloads
@@ -1344,7 +1359,8 @@ function monthlyKpisForMonth(company, monthKey, periodOpts = {}) {
     gscImpressions: gscKpis.impressions,
     gscCtr: gscKpis.ctr,
     gscAvgPosition: gscKpis.avgPosition,
-    socialChannelViews: socialChannels?.socialChannelViews || 0,
+    socialChannelViews: socialChannelData?.totalViews || 0,
+    ...socialChannelByKey,
   };
 }
 
@@ -2689,7 +2705,8 @@ const WEEKLY_BRIEF_KPI_CATALOG = [
 
 function formatBriefNum(n) {
   if (n == null) return '0';
-  const num = Number(n);
+  const num = Math.round(Number(n));
+  if (Number.isNaN(num)) return '0';
   if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
   if (num >= 10_000) return `${(num / 1000).toFixed(1)}K`;
   return num.toLocaleString('en-US');

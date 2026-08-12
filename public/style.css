@@ -1693,7 +1693,8 @@ body.is-loading .filter-label::after {
   opacity: 0.85;
 }
 
-.pipeline-awareness-deltas {
+.pipeline-awareness-deltas,
+.metric-delta-rows {
   display: flex;
   flex-direction: column;
   gap: 0.22rem;
@@ -1702,7 +1703,8 @@ body.is-loading .filter-label::after {
   min-width: 0;
 }
 
-.pipeline-awareness-delta-row {
+.pipeline-awareness-delta-row,
+.metric-delta-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1710,7 +1712,8 @@ body.is-loading .filter-label::after {
   min-width: 0;
 }
 
-.pipeline-awareness-delta-label {
+.pipeline-awareness-delta-label,
+.metric-delta-label {
   flex: 1 1 auto;
   min-width: 0;
   font-size: 0.6rem;
@@ -1722,7 +1725,8 @@ body.is-loading .filter-label::after {
   text-overflow: ellipsis;
 }
 
-.pipeline-awareness-delta-row .kpi-delta {
+.pipeline-awareness-delta-row .kpi-delta,
+.metric-delta-row .kpi-delta {
   flex: 0 0 auto;
   font-size: 0.62rem;
   padding: 0.08rem 0.34rem;
