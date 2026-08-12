@@ -11,13 +11,23 @@
     <a href="/weekly" class="nav-brand">Analytics Dashboard</a>
     <div class="nav-main">
       <div class="nav-pills" aria-label="Primary navigation">
-        <a href="/weekly" class="nav-pill">Weekly Brief</a>
-        <a href="/combined" class="nav-pill">Combined</a>
-        <a href="/" class="nav-pill">Dashboard</a>
-        <a href="/campaigns" class="nav-pill">Campaigns</a>
+        <a href="/weekly" class="nav-pill" data-nav="weekly">Weekly Brief</a>
+        <div class="nav-dropdown" id="gtmNavDropdown">
+          <button type="button" class="nav-pill nav-pill-dropdown" id="gtmNavToggle" aria-haspopup="true" aria-expanded="false">
+            GTM <span class="nav-dropdown-caret" aria-hidden="true">▾</span>
+          </button>
+          <div class="nav-dropdown-menu" id="gtmNavMenu" role="menu">
+            <a href="/gtm/nepal" class="nav-dropdown-item" role="menuitem" data-market="nepal">Nepal</a>
+            <a href="/gtm/vietnam" class="nav-dropdown-item" role="menuitem" data-market="vietnam">Vietnam</a>
+            <a href="/gtm/taiwan" class="nav-dropdown-item" role="menuitem" data-market="taiwan">Taiwan</a>
+          </div>
+        </div>
+        <a href="/combined" class="nav-pill" data-nav="combined">Combined</a>
+        <a href="/" class="nav-pill" data-nav="dashboard">Dashboard</a>
+        <a href="/campaigns" class="nav-pill" data-nav="campaigns">Campaigns</a>
       </div>
       <div class="nav-actions">
-        <a href="/upload" class="nav-pill nav-pill-upload active">Upload</a>
+        <a href="/upload" class="nav-pill nav-pill-upload active" data-nav="upload">Upload</a>
       </div>
     </div>
   </nav>
@@ -32,6 +42,9 @@
         <select id="company" name="company">
           <option value="workjapan" selected>WORK JAPAN</option>
           <option value="nyuuly">Nyuuly</option>
+          <option value="nepal">Nepal</option>
+          <option value="vietnam">Vietnam</option>
+          <option value="taiwan">Taiwan</option>
         </select>
       </div>
 
@@ -488,6 +501,7 @@
 
   <div class="toast-container" id="toastContainer"></div>
 
+  <script src="/nav.js"></script>
   <script src="/onboarding-tour.js"></script>
   <script>
     const SLOTS = [
@@ -555,8 +569,16 @@
       return map[type] || type;
     }
 
+    const GTM_MARKET_LABELS = {
+      nepal: 'Nepal',
+      vietnam: 'Vietnam',
+      taiwan: 'Taiwan',
+    };
+
     function formatCompany(c) {
-      return c === 'workjapan' ? 'WORK JAPAN' : 'Nyuuly';
+      if (c === 'workjapan') return 'WORK JAPAN';
+      if (c === 'nyuuly') return 'Nyuuly';
+      return GTM_MARKET_LABELS[c] || c;
     }
 
     function escapeHtml(str) {
@@ -691,12 +713,12 @@
     function initCompanySelection() {
       const params = new URLSearchParams(window.location.search);
       const fromUrl = params.get('company');
-      if (fromUrl === 'nyuuly' || fromUrl === 'workjapan') {
+      if (['nyuuly', 'workjapan', 'nepal', 'vietnam', 'taiwan'].includes(fromUrl)) {
         companySelect.value = fromUrl;
         return;
       }
       const saved = sessionStorage.getItem('analyticsCompany');
-      if (saved === 'nyuuly' || saved === 'workjapan') {
+      if (['nyuuly', 'workjapan', 'nepal', 'vietnam', 'taiwan'].includes(saved)) {
         companySelect.value = saved;
       }
     }
@@ -705,19 +727,30 @@
       const metaEl = document.getElementById('dataCoverageMeta');
       const dateEl = document.getElementById('dataThroughDate');
       try {
-        // Prefer selected company; fall back to the other if only one is set.
-        let res = await fetch(`/api/data-coverage?company=${companySelect.value}`);
+        const selected = companySelect.value;
+        const isSharedMode = selected === 'nyuuly' || selected === 'workjapan';
+
+        // Prefer selected company; fall back to the other if only one is set (shared mode only).
+        let res = await fetch(`/api/data-coverage?company=${selected}`);
         let data = await res.json();
         if (!data.dataThroughDate) {
-          const other = companySelect.value === 'nyuuly' ? 'workjapan' : 'nyuuly';
-          res = await fetch(`/api/data-coverage?company=${other}`);
-          data = await res.json();
+          if (isSharedMode) {
+            const other = selected === 'nyuuly' ? 'workjapan' : 'nyuuly';
+            res = await fetch(`/api/data-coverage?company=${other}`);
+            data = await res.json();
+          }
         }
         if (data.dataThroughDate) {
           dateEl.value = data.dataThroughDate;
-          metaEl.textContent = data.label
-            ? `Saved for Nyuuly & WORK JAPAN: ${data.dataThroughDate} · ${data.label}`
-            : `Saved for Nyuuly & WORK JAPAN: ${data.dataThroughDate}`;
+          if (isSharedMode) {
+            metaEl.textContent = data.label
+              ? `Saved for Nyuuly & WORK JAPAN: ${data.dataThroughDate} · ${data.label}`
+              : `Saved for Nyuuly & WORK JAPAN: ${data.dataThroughDate}`;
+          } else {
+            metaEl.textContent = data.label
+              ? `Saved for ${selected}: ${data.dataThroughDate} · ${data.label}`
+              : `Saved for ${selected}: ${data.dataThroughDate}`;
+          }
         } else {
           dateEl.value = '';
           metaEl.textContent = 'Not set — full-month comparison only.';
@@ -735,18 +768,23 @@
         return;
       }
       try {
+        const co = companySelect.value;
+        const applyToBoth = co === 'nyuuly' || co === 'workjapan';
         const res = await fetch('/api/manual/data-coverage', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            company: companySelect.value,
+            company: co,
             dataThroughDate: date,
-            applyToBoth: true,
+            applyToBoth,
           }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Save failed');
-        showToast('Data through date saved for Nyuuly and WORK JAPAN', 'success');
+        showToast(
+          applyToBoth ? 'Data through date saved for Nyuuly and WORK JAPAN' : `Data through date saved for ${co}`,
+          'success'
+        );
         await loadDataCoverage();
       } catch (err) {
         showToast(err.message, 'error');
@@ -755,11 +793,12 @@
 
     function updateManualSectionVisibility() {
       const isWorkJapan = companySelect.value === 'workjapan';
+      const isNyuuly = companySelect.value === 'nyuuly';
       document.body.classList.toggle('company-workjapan', isWorkJapan);
-      document.body.classList.toggle('company-nyuuly', !isWorkJapan);
+      document.body.classList.toggle('company-nyuuly', isNyuuly);
       document.getElementById('manualUploadSection').style.display = isWorkJapan ? '' : 'none';
       const nyuulySection = document.getElementById('nyuulyManualSection');
-      if (nyuulySection) nyuulySection.style.removeProperty('display');
+      if (nyuulySection) nyuulySection.style.display = isNyuuly ? '' : 'none';
     }
 
     function updateNyuulyCommitStatus(status) {

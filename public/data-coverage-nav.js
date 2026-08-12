@@ -9,7 +9,10 @@
   }
 
   function companyLabel(co) {
-    return co === 'nyuuly' ? 'Nyuuly' : 'WORK JAPAN';
+    if (co === 'nyuuly') return 'Nyuuly';
+    if (co === 'workjapan') return 'WORK JAPAN';
+    const gtmLabels = { nepal: 'Nepal', vietnam: 'Vietnam', taiwan: 'Taiwan' };
+    return gtmLabels[co] || co;
   }
 
   function setNavText(text) {

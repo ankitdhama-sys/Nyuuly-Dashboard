@@ -1,8 +1,10 @@
 const COLORS = {
   nyuuly: '#4F8EF7',
   workjapan: '#FF6B35',
+  gtm: '#22c55e',
   nyuulyLight: 'rgba(79, 142, 247, 0.6)',
   workjapanLight: 'rgba(255, 107, 53, 0.6)',
+  gtmLight: 'rgba(34, 197, 94, 0.6)',
   grid: 'rgba(136, 146, 176, 0.15)',
   text: '#8892b0',
   platform: {
@@ -18,6 +20,25 @@ let state = {
   month: null,
   availableMonths: [],
 };
+
+const GTM_COMPANIES = ['nepal', 'vietnam', 'taiwan'];
+const GTM_LABELS = { nepal: 'Nepal', vietnam: 'Vietnam', taiwan: 'Taiwan' };
+
+function isGtmCompany(company) {
+  return GTM_COMPANIES.includes(company);
+}
+
+function gtmConfig() {
+  return window.GTM_DASHBOARD || null;
+}
+
+function uploadPageUrl() {
+  return gtmConfig()?.uploadUrl || '/upload';
+}
+
+function uploadPageLink(text = 'upload page') {
+  return `<a href="${uploadPageUrl()}">${text}</a>`;
+}
 
 let dashboardLoadId = 0;
 
@@ -391,7 +412,9 @@ async function fetchJSONSafe(url, fallback = null) {
 }
 
 function companyLabel(company) {
-  return company === 'workjapan' ? 'WORK JAPAN' : 'Nyuuly';
+  if (company === 'workjapan') return 'WORK JAPAN';
+  if (company === 'nyuuly') return 'Nyuuly';
+  return GTM_LABELS[company] || company;
 }
 
 function updateCoverageNote(monthly) {
@@ -419,6 +442,11 @@ function updateFilterLabel(filter) {
 }
 
 function syncStateFromUI() {
+  const cfg = gtmConfig();
+  if (cfg?.company) {
+    state.company = cfg.company;
+    return;
+  }
   const activeCompany = document.querySelector('#companyTabs .tab-btn.active');
   if (activeCompany?.dataset.company) state.company = activeCompany.dataset.company;
 }
@@ -435,13 +463,16 @@ function journeyById(journeys, id) {
 }
 
 function companyBrandColor() {
+  if (isGtmCompany(state.company)) return COLORS.gtm;
   return state.company === 'workjapan' ? COLORS.workjapan : COLORS.nyuuly;
 }
 
 function updateCompanyLayout() {
   const isWj = state.company === 'workjapan';
+  const isGtm = isGtmCompany(state.company);
   document.body.classList.toggle('company-workjapan', isWj);
-  document.body.classList.toggle('company-nyuuly', !isWj);
+  document.body.classList.toggle('company-nyuuly', !isWj && !isGtm);
+  document.body.classList.toggle('company-gtm', isGtm);
   document.querySelectorAll('.workjapan-only').forEach((el) => {
     el.style.display = isWj ? '' : 'none';
   });
@@ -478,6 +509,37 @@ function renderFunnelPipeline(journeys, platform, applicants, social, users, del
 
   const awareness = journeyById(journeys, 'awareness');
   const isWj = state.company === 'workjapan';
+  const isGtm = isGtmCompany(state.company);
+
+  if (isGtm) {
+    const stages = [
+      {
+        anchor: 'stage-awareness',
+        num: 1,
+        label: 'Awareness',
+        awarenessMetrics: {
+          gsc: awareness?.kpis?.gscImpressions || 0,
+          social: awareness?.kpis?.socialChannelViews || 0,
+        },
+        deltas,
+      },
+      {
+        anchor: 'stage-consideration',
+        num: 2,
+        label: 'Consideration',
+        raw: users?.kpis?.totalUsers || 0,
+        deltaKey: 'totalUsers',
+        deltas,
+        sourceBreakdown: users?.sourceBreakdown,
+        detail: `${formatNum(deltas?.appDownloads?.value)} app downloads`,
+      },
+    ];
+    el.innerHTML = stages.map((s, i) => `
+      ${renderPipelineStageCard(s, i > 0 ? stages[i - 1] : null)}
+      ${i < stages.length - 1 ? '<div class="pipeline-arrow">→</div>' : ''}
+    `).join('');
+    return;
+  }
 
   const stages = isWj ? [
     {
@@ -1591,7 +1653,7 @@ function renderConsiderationInsights(consideration) {
   if (!hasFunnel) {
     el.innerHTML = `
       <div class="consideration-hub-inner">
-        <div class="highlight-panel empty">Upload the <strong>Pages CSV</strong> and <strong>User Acquisition CSV</strong> on the <a href="/upload">upload page</a>.</div>
+        <div class="highlight-panel empty">Upload the <strong>Pages CSV</strong> and <strong>User Acquisition CSV</strong> on the ${uploadPageLink()}.</div>
       </div>`;
     bindConsiderationChartDownloads(el);
     return;
@@ -1603,7 +1665,7 @@ function renderConsiderationInsights(consideration) {
       <div class="consideration-grid">
         <div class="consideration-panel">
           <h4>Organic landing pages (Search Console)</h4>
-          <p class="subsection-hint">Top pages receiving organic search clicks this month — upload GSC Performance zip on the <a href="/upload">upload page</a>.</p>
+          <p class="subsection-hint">Top pages receiving organic search clicks this month — upload GSC Performance zip on the ${uploadPageLink()}.</p>
           <div class="table-wrap"><table class="consideration-table">
             <thead><tr><th>Page</th><th>Clicks</th><th>Impressions</th><th>CTR</th><th>Position</th></tr></thead>
             <tbody>${(consideration.topGscPages || []).map((p) => `
@@ -1979,7 +2041,7 @@ function renderGscKpis(gsc, deltas) {
   if (!el) return;
   const kpis = gsc?.kpis || {};
   if (!gsc?.hasData) {
-    el.innerHTML = '<div class="empty-state">No Search Console data for this month — upload the GSC Performance zip on the <a href="/upload">upload page</a>.</div>';
+    el.innerHTML = `<div class="empty-state">No Search Console data for this month — upload the GSC Performance zip on the ${uploadPageLink()}.</div>`;
     return;
   }
   const metricVal = (key, raw) => (deltas?.[key]?.value != null ? deltas[key].value : raw);
@@ -2072,7 +2134,7 @@ function renderBrandMessage(data, monthly) {
 
   const message = data?.message?.trim();
   if (!message) {
-    el.innerHTML = '<div class="empty-state">No brand message for this month — <a href="/upload">add the key message on the upload page</a></div>';
+    el.innerHTML = `<div class="empty-state">No brand message for this month — add the key message on the ${uploadPageLink()}</div>`;
     return;
   }
 
@@ -2125,7 +2187,7 @@ function renderSocialKpis(socialChannels, socialCsv, deltas, socialChannelHistor
   const platforms = ['Facebook', 'Instagram', 'TikTok', 'YouTube'];
 
   if (!manualTotal && !csvPosts) {
-    el.innerHTML = '<div class="empty-state">No social data for this month — enter channel views on the <a href="/upload">upload page</a> or upload a Social CSV.</div>';
+    el.innerHTML = `<div class="empty-state">No social data for this month — enter channel views on the ${uploadPageLink()} or upload a Social CSV.</div>`;
     return;
   }
 
@@ -2231,13 +2293,13 @@ function renderTopContentTable(topPosts) {
         <td>${p.permalink ? `<a href="${p.permalink}" target="_blank" rel="noopener">Open ↗</a>` : '—'}</td>
       </tr>
     `).join('')
-    : '<tr><td colspan="8" class="empty-state">No posts in Social CSV for this month — upload on the <a href="/upload">upload page</a></td></tr>';
+    : `<tr><td colspan="8" class="empty-state">No posts in Social CSV for this month — upload on the ${uploadPageLink()}</td></tr>`;
 }
 
 function renderUsersKpis(kpis, deltas) {
   const el = document.getElementById('usersKpis');
   if (!kpis || !kpis.totalUsers) {
-    el.innerHTML = '<div class="empty-state">No user acquisition data for this date range — <a href="/upload">upload a CSV</a></div>';
+    el.innerHTML = `<div class="empty-state">No user acquisition data for this date range — <a href="${uploadPageUrl()}">upload a CSV</a></div>`;
     return;
   }
   el.innerHTML = `
@@ -2503,7 +2565,7 @@ function renderSortableTable(tableId, columns, data, sort, onSort) {
   });
 
   if (!data.length) {
-    table.querySelector('tbody').innerHTML = `<tr><td colspan="${columns.length}" class="empty-state">No data for this date range — <a href="/upload">upload a CSV first</a></td></tr>`;
+    table.querySelector('tbody').innerHTML = `<tr><td colspan="${columns.length}" class="empty-state">No data for this date range — <a href="${uploadPageUrl()}">upload a CSV first</a></td></tr>`;
     return;
   }
 
@@ -2665,6 +2727,7 @@ async function loadDashboard() {
 
   try {
     const isWorkJapan = company === 'workjapan';
+    const isGtm = isGtmCompany(company);
     const monthQ = new URLSearchParams({ company, month: activeMonth });
 
     const fetches = [
@@ -2752,6 +2815,8 @@ async function loadDashboard() {
       renderChartApplicantOutcomes(applicantHistory?.history);
       renderChartApplicantFunnel(applicants.funnelSteps, applicants.latest?.month_label);
       renderChartApplicantsByMonth(applicants.rows);
+    } else if (isGtm) {
+      renderFunnelPipeline(journeys, null, null, social, users, deltas);
     } else {
       const [nyuulyCommitStats, nyuulyCommitHistory, nyuulyResultStats, nyuulyResultHistory, mobileSimFlow, mobileSimFlowHistory, compassUsesFlow, compassUsesHistory] = await Promise.all([
         fetchJSONSafe(`/api/nyuuly-commit-stats?${q}`, { kpis: {} }),
@@ -2803,16 +2868,19 @@ async function loadDashboard() {
 }
 
 function initControls() {
-  document.getElementById('companyTabs').addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-company]');
-    if (!btn) return;
-    document.querySelectorAll('#companyTabs .tab-btn').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    state.company = btn.dataset.company;
-    sessionStorage.setItem('analyticsCompany', state.company);
-    await loadAvailableMonths(true);
-    await loadDashboard();
-  });
+  const companyTabs = document.getElementById('companyTabs');
+  if (companyTabs) {
+    companyTabs.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-company]');
+      if (!btn) return;
+      document.querySelectorAll('#companyTabs .tab-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.company = btn.dataset.company;
+      sessionStorage.setItem('analyticsCompany', state.company);
+      await loadAvailableMonths(true);
+      await loadDashboard();
+    });
+  }
 
   document.getElementById('monthSelect').addEventListener('change', async (e) => {
     state.month = e.target.value;
@@ -2838,8 +2906,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const urlCompany = params.get('company');
   const urlMonth = params.get('month');
   const urlHash = window.location.hash;
+  const gtm = gtmConfig();
 
-  if (urlCompany === 'nyuuly' || urlCompany === 'workjapan') {
+  if (gtm?.company) {
+    state.company = gtm.company;
+  } else if (urlCompany === 'nyuuly' || urlCompany === 'workjapan') {
     state.company = urlCompany;
     sessionStorage.setItem('analyticsCompany', urlCompany);
     document.querySelectorAll('#companyTabs .tab-btn').forEach((b) => {

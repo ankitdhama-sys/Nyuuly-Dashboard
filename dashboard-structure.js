@@ -160,12 +160,65 @@ const NYUULY_GUIDE = {
   ],
 };
 
+const GTM_MARKETS = ['nepal', 'vietnam', 'taiwan'];
+
+const GTM_FUNNEL_STAGES = [
+  {
+    id: 'awareness',
+    number: 1,
+    label: 'Awareness',
+    question: 'How do users discover this market?',
+    summary: 'Social content performance, organic search impressions, and manual social channel views.',
+    anchor: 'stage-awareness',
+    dataSources: ['Social CSV', 'Search Console zip (GSC Performance)', 'Social channel views (manual)'],
+    journeyIds: ['awareness'],
+    sectionIds: ['section-brand-message', 'section-social', 'section-gsc-awareness'],
+  },
+  {
+    id: 'consideration',
+    number: 2,
+    label: 'Consideration',
+    question: 'Where do users come from and what pages do they view?',
+    summary: 'Website users from GA4 User Acquisition, page navigation, and funnel drop-offs.',
+    anchor: 'stage-consideration',
+    dataSources: ['User Acquisition CSV (GA4)', 'Pages CSV', 'Funnel CSV', 'Search Console zip (GSC)', 'App downloads (manual)'],
+    journeyIds: ['browse-jobs', 'job-detail'],
+    sectionIds: ['section-users', 'section-pages', 'considerationInsights'],
+  },
+];
+
+const GTM_GUIDE = {
+  title: 'How to read this dashboard',
+  intro: 'GTM market analytics follow **Awareness → Consideration**. Upload monthly CSVs and manual entries on the upload page — data is kept separate from Nyuuly and WORK JAPAN.',
+  pillars: [
+    {
+      title: 'Awareness → Consideration',
+      body: 'Awareness covers social content, organic search, and manual channel views. Consideration covers website users, page navigation, and where users drop off before converting.',
+    },
+    {
+      title: 'Monthly CSV data',
+      body: 'Five uploads per month: Social, Funnel, User Acquisition, Pages, and Search Console. Manual entry covers social channel views, brand message, and app downloads.',
+    },
+  ],
+  dataLegend: [
+    { label: 'Monthly CSV', desc: 'Social, funnel, user acquisition, pages, GSC zip' },
+    { label: 'Manual monthly', desc: 'Social channel views, brand message, app downloads' },
+  ],
+};
+
 function getDashboardGuide(company) {
   if (company === 'workjapan') {
     return {
       ...WORKJAPAN_GUIDE,
       funnelStages: WORKJAPAN_FUNNEL_STAGES,
       pillars_extra: WORKJAPAN_PILLARS,
+    };
+  }
+  if (GTM_MARKETS.includes(company)) {
+    return {
+      ...GTM_GUIDE,
+      funnelStages: GTM_FUNNEL_STAGES,
+      pillars_extra: [],
     };
   }
   return {
@@ -176,7 +229,9 @@ function getDashboardGuide(company) {
 }
 
 function getFunnelStageForJourney(journeyId, company = 'workjapan') {
-  const stages = company === 'workjapan' ? WORKJAPAN_FUNNEL_STAGES : NYUULY_FUNNEL_STAGES;
+  let stages = NYUULY_FUNNEL_STAGES;
+  if (company === 'workjapan') stages = WORKJAPAN_FUNNEL_STAGES;
+  else if (GTM_MARKETS.includes(company)) stages = GTM_FUNNEL_STAGES;
   return stages.find((s) => s.journeyIds.includes(journeyId)) || null;
 }
 
@@ -185,9 +240,12 @@ module.exports = {
   BARRIER_TYPES,
   WORKJAPAN_FUNNEL_STAGES,
   NYUULY_FUNNEL_STAGES,
+  GTM_FUNNEL_STAGES,
+  GTM_MARKETS,
   WORKJAPAN_PILLARS,
   WORKJAPAN_GUIDE,
   NYUULY_GUIDE,
+  GTM_GUIDE,
   getDashboardGuide,
   getFunnelStageForJourney,
 };

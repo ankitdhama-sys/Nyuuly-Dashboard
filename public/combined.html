@@ -12,13 +12,23 @@
     <a href="/weekly" class="nav-brand">Analytics Dashboard</a>
     <div class="nav-main">
       <div class="nav-pills" aria-label="Primary navigation">
-        <a href="/weekly" class="nav-pill">Weekly Brief</a>
-        <a href="/combined" class="nav-pill active">Combined</a>
-        <a href="/" class="nav-pill">Dashboard</a>
-        <a href="/campaigns" class="nav-pill">Campaigns</a>
+        <a href="/weekly" class="nav-pill" data-nav="weekly">Weekly Brief</a>
+        <div class="nav-dropdown" id="gtmNavDropdown">
+          <button type="button" class="nav-pill nav-pill-dropdown" id="gtmNavToggle" aria-haspopup="true" aria-expanded="false">
+            GTM <span class="nav-dropdown-caret" aria-hidden="true">▾</span>
+          </button>
+          <div class="nav-dropdown-menu" id="gtmNavMenu" role="menu">
+            <a href="/gtm/nepal" class="nav-dropdown-item" role="menuitem" data-market="nepal">Nepal</a>
+            <a href="/gtm/vietnam" class="nav-dropdown-item" role="menuitem" data-market="vietnam">Vietnam</a>
+            <a href="/gtm/taiwan" class="nav-dropdown-item" role="menuitem" data-market="taiwan">Taiwan</a>
+          </div>
+        </div>
+        <a href="/combined" class="nav-pill active" data-nav="combined">Combined</a>
+        <a href="/" class="nav-pill" data-nav="dashboard">Dashboard</a>
+        <a href="/campaigns" class="nav-pill" data-nav="campaigns">Campaigns</a>
       </div>
       <div class="nav-actions">
-        <a href="/upload" class="nav-pill nav-pill-upload">Upload</a>
+        <a href="/upload" class="nav-pill nav-pill-upload" data-nav="upload">Upload</a>
         <span class="nav-data-through" id="dataThroughNav" title="How far into the month uploaded data covers">Data through: —</span>
         <span class="nav-updated" id="lastUpdated">Last updated: —</span>
       </div>
@@ -161,6 +171,7 @@
     </section>
   </main>
 
+  <script src="/nav.js"></script>
   <script src="/data-coverage-nav.js"></script>
   <script src="/onboarding-tour.js"></script>
   <script src="/combined.js"></script>

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GTM — Nepal — Analytics Dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body class="gtm-dashboard-page company-gtm">
+  <nav class="nav">
+    <a href="/weekly" class="nav-brand">Analytics Dashboard</a>
+    <div class="nav-main">
+      <div class="nav-pills" aria-label="Primary navigation">
+        <a href="/weekly" class="nav-pill" data-nav="weekly">Weekly Brief</a>
+        <div class="nav-dropdown" id="gtmNavDropdown">
+          <button type="button" class="nav-pill nav-pill-dropdown" id="gtmNavToggle" aria-haspopup="true" aria-expanded="false">
+            GTM <span class="nav-dropdown-caret" aria-hidden="true">▾</span>
+          </button>
+          <div class="nav-dropdown-menu" id="gtmNavMenu" role="menu">
+            <a href="/gtm/nepal" class="nav-dropdown-item active" role="menuitem" data-market="nepal">Nepal</a>
+            <a href="/gtm/vietnam" class="nav-dropdown-item" role="menuitem" data-market="vietnam">Vietnam</a>
+            <a href="/gtm/taiwan" class="nav-dropdown-item" role="menuitem" data-market="taiwan">Taiwan</a>
+          </div>
+        </div>
+        <a href="/combined" class="nav-pill" data-nav="combined">Combined</a>
+        <a href="/" class="nav-pill" data-nav="dashboard">Dashboard</a>
+        <a href="/campaigns" class="nav-pill" data-nav="campaigns">Campaigns</a>
+      </div>
+      <div class="nav-actions">
+        <a href="/upload?company=nepal" class="nav-pill nav-pill-upload" data-nav="upload">Upload</a>
+        <span class="nav-data-through" id="dataThroughNav" title="How far into the month uploaded data covers">Data through: —</span>
+        <span class="nav-updated" id="lastUpdated">Last updated: —</span>
+      </div>
+    </div>
+  </nav>
+
+  <div class="controls gtm-controls">
+    <select id="monthSelect" class="month-select"></select>
+    <div class="filter-label" id="filterLabel">Loading filters…</div>
+    <p class="controls-coverage-note" id="coverageNote" hidden></p>
+    <div class="data-status" id="dataStatus" title="Monthly CSV upload status">
+      <span class="data-status-label">Data files:</span>
+      <span id="dataStatusDots">—</span>
+    </div>
+  </div>
+
+  <main class="main gtm-dashboard-main">
+    <p class="gtm-eyebrow gtm-dashboard-eyebrow">GTM · Nepal</p>
+
+    <nav class="funnel-nav" id="funnelNav" aria-label="Funnel stages"></nav>
+
+    <section class="section funnel-overview-section" id="section-funnel-overview">
+      <div class="section-header" data-section="funnel-overview">
+        <h2>Market Funnel — At a Glance</h2>
+        <span class="collapse-icon">▼</span>
+      </div>
+      <div class="section-body">
+        <p class="subsection-hint">Each card shows this month’s total. Awareness shows Google search and social media separately. Consideration splits website users by GA4 channel (search, social, other).</p>
+        <div class="funnel-pipeline" id="funnelPipeline"></div>
+      </div>
+    </section>
+
+    <div class="funnel-stage-banner" id="stage-awareness">
+      <span class="funnel-stage-num">1</span>
+      <div>
+        <h2 class="funnel-stage-title">Awareness</h2>
+        <p class="funnel-stage-question">How do users discover this market?</p>
+      </div>
+    </div>
+
+    <section class="section" id="section-brand-message">
+      <div class="section-header" data-section="brand-message">
+        <h2>Brand Message</h2>
+        <span class="collapse-icon">▼</span>
+      </div>
+      <div class="section-body">
+        <p class="subsection-hint">The key message this market generates awareness for — enter monthly on the <a href="/upload?company=nepal">upload page</a>.</p>
+        <div id="brandMessagePanel" class="brand-message-panel"></div>
+      </div>
+    </section>
+
+    <section class="section" id="section-social">
+      <div class="section-header" data-section="social">
+        <div class="section-title-wrap">
+          <h2>Social &amp; Content Performance</h2>
+          <span class="section-contribution" id="socialAwarenessContrib"></span>
+        </div>
+        <span class="collapse-icon">▼</span>
+      </div>
+      <div class="section-body">
+        <p class="subsection-hint">Enter monthly views per channel on the <a href="/upload?company=nepal">upload page</a> (Facebook, Instagram, TikTok, YouTube). Top posts come from the Social CSV for the selected month.</p>
+        <div class="kpi-row" id="socialKpis"></div>
+        <div class="chart-grid">
+          <div class="chart-container">
+            <div class="chart-header"><h3>Views by Platform — This Month</h3><button class="chart-download" data-chart="chartSocialPlatforms">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartSocialPlatforms"></canvas></div>
+          </div>
+          <div class="chart-container full-width">
+            <div class="chart-header"><h3>Platform Views by Month</h3><button class="chart-download" data-chart="chartSocialPlatformsByMonth">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartSocialPlatformsByMonth"></canvas></div>
+          </div>
+        </div>
+        <h4 class="subsection-title">Top 10 Most Performing Content</h4>
+        <div class="table-wrap"><table id="topContentTable"><thead></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+
+    <section class="section" id="section-gsc-awareness">
+      <div class="section-header" data-section="gsc-awareness">
+        <h2>Organic Search — Google Search Console</h2>
+        <span class="collapse-icon">▼</span>
+      </div>
+      <div class="section-body">
+        <p class="subsection-hint">Upload the GSC Performance zip each month on the <a href="/upload?company=nepal">upload page</a>. Shows organic clicks, impressions, and top queries for the selected month.</p>
+        <div class="kpi-row" id="gscKpis"></div>
+        <div class="chart-grid">
+          <div class="chart-container full-width">
+            <div class="chart-header"><h3>Daily Organic Clicks &amp; Impressions</h3><button class="chart-download" data-chart="chartGscDaily">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartGscDaily"></canvas></div>
+          </div>
+          <div class="chart-container">
+            <div class="chart-header"><h3>Top Search Queries</h3><button class="chart-download" data-chart="chartGscQueries">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartGscQueries"></canvas></div>
+          </div>
+        </div>
+        <h4 class="subsection-title">Top Queries</h4>
+        <div class="table-wrap"><table id="gscQueriesTable"><thead></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+
+    <div class="funnel-stage-banner" id="stage-consideration">
+      <span class="funnel-stage-num">2</span>
+      <div>
+        <h2 class="funnel-stage-title">Consideration</h2>
+        <p class="funnel-stage-question">Where do users come from, what do they browse, and where is the biggest drop-off?</p>
+      </div>
+    </div>
+
+    <div id="considerationAudience" class="consideration-audience">
+      <div class="consideration-hub-inner">
+        <div class="consideration-grid">
+          <div class="consideration-panel">
+            <h4>Website users (GA4)</h4>
+            <p class="subsection-hint">Total website users from the User Acquisition CSV — last 6 months.</p>
+            <div class="consideration-audience-kpi" id="considerationWebUsersKpi"></div>
+            <div class="chart-container consideration-chart">
+              <div class="chart-header"><h3>Total website users</h3><button class="chart-download" data-chart="chartConsiderationWebUsers">PNG</button></div>
+              <div class="chart-wrapper"><canvas id="chartConsiderationWebUsers"></canvas></div>
+            </div>
+          </div>
+          <div class="consideration-panel">
+            <h4>App store downloads</h4>
+            <p class="subsection-hint">Enter iOS and Android download counts on the <a href="/upload?company=nepal">upload page</a> — last 6 months.</p>
+            <div class="consideration-audience-kpi" id="considerationAppDownloadsKpi"></div>
+            <div class="chart-container consideration-chart">
+              <div class="chart-header"><h3>Downloads by platform</h3><button class="chart-download" data-chart="chartConsiderationAppDownloads">PNG</button></div>
+              <div class="chart-wrapper"><canvas id="chartConsiderationAppDownloads"></canvas></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="considerationInsights" class="consideration-hub"></div>
+
+    <section class="section" id="section-users">
+      <div class="section-header" data-section="users">
+        <h2>User Acquisition — Where Users Come From</h2>
+        <span class="collapse-icon">▼</span>
+      </div>
+      <div class="section-body">
+        <div class="kpi-row" id="usersKpis"></div>
+        <div class="chart-grid">
+          <div class="chart-container">
+            <div class="chart-header"><h3>Users by Channel</h3><button class="chart-download" data-chart="chartUsersDonut">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartUsersDonut"></canvas></div>
+          </div>
+          <div class="chart-container full-width">
+            <div class="chart-header"><h3>Avg Engagement Time by Channel</h3><button class="chart-download" data-chart="chartUsersEngagement">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartUsersEngagement"></canvas></div>
+          </div>
+        </div>
+        <h4 class="subsection-title">Channel Performance</h4>
+        <div class="table-wrap"><table id="usersTable"><thead></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+
+    <section class="section" id="section-pages">
+      <div class="section-header" data-section="pages">
+        <h2>Pages — Navigation &amp; Traffic</h2>
+        <span class="collapse-icon">▼</span>
+      </div>
+      <div class="section-body">
+        <h4 class="subsection-title">Page Performance</h4>
+        <div class="table-wrap"><table id="pagesTable"><thead></thead><tbody></tbody></table></div>
+        <div class="pagination" id="pagesPagination"></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast-container" id="toastContainer"></div>
+  <script>
+    window.GTM_DASHBOARD = { company: 'nepal', label: 'Nepal', uploadUrl: '/upload?company=nepal' };
+  </script>
+  <script src="/nav.js"></script>
+  <script src="/data-coverage-nav.js"></script>
+  <script src="/dashboard.js"></script>
+</body>
+</html>

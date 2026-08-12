@@ -62,6 +62,8 @@ const MANUAL_FILE_TYPES = ['platform', 'applicants', 'geo', 'visa', 'nationality
 
 const SOCIAL_CHANNELS = ['Facebook', 'Instagram', 'TikTok', 'YouTube'];
 
+const GTM_MARKETS = ['nepal', 'vietnam', 'taiwan'];
+
 const SOCIAL_CHANNEL_KPI_KEYS = {
   Facebook: 'socialChannelFacebook',
   Instagram: 'socialChannelInstagram',
@@ -2835,13 +2837,22 @@ app.get('/weekly', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'weekly.html'));
 });
 
+app.get(['/gtm', '/gtm/vietnam', '/gtm/taiwan'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'gtm.html'));
+});
+
+app.get('/gtm/nepal', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'gtm-nepal.html'));
+});
+
 app.post('/api/upload', uploadLimiter, upload.single('file'), (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
     const company = req.body.company;
-    if (!company || !['nyuuly', 'workjapan'].includes(company)) {
-      return res.status(400).json({ error: 'Invalid company. Use nyuuly or workjapan.' });
+    const allowedCompanies = ['nyuuly', 'workjapan', ...GTM_MARKETS];
+    if (!company || !allowedCompanies.includes(company)) {
+      return res.status(400).json({ error: 'Invalid company.' });
     }
 
     const expectedType = req.body.expectedType;
@@ -2990,7 +3001,8 @@ app.post('/api/manual/data-coverage', uploadLimiter, (req, res) => {
     const { company, dataThroughDate } = req.body;
     // Default: apply to both companies so same-period MoM works for Nyuuly and WORK JAPAN.
     const applyToBoth = req.body.applyToBoth !== false;
-    if (company && !['workjapan', 'nyuuly'].includes(company)) {
+    const allowedCompanies = ['workjapan', 'nyuuly', ...GTM_MARKETS];
+    if (company && !allowedCompanies.includes(company)) {
       return res.status(400).json({ error: 'Valid company is required' });
     }
     if (!applyToBoth && !company) {
@@ -3058,7 +3070,8 @@ app.post('/api/manual/platform', uploadLimiter, (req, res) => {
 app.post('/api/manual/social-channels', uploadLimiter, (req, res) => {
   try {
     const { company, month, channels } = req.body;
-    if (!company || !['nyuuly', 'workjapan'].includes(company)) {
+    const allowedCompanies = ['nyuuly', 'workjapan', ...GTM_MARKETS];
+    if (!company || !allowedCompanies.includes(company)) {
       return res.status(400).json({ error: 'Invalid company' });
     }
     if (!month) return res.status(400).json({ error: 'Month is required' });
@@ -3089,7 +3102,8 @@ app.post('/api/manual/social-channels', uploadLimiter, (req, res) => {
 app.post('/api/manual/brand-message', uploadLimiter, (req, res) => {
   try {
     const { company, month, message } = req.body;
-    if (!company || !['nyuuly', 'workjapan'].includes(company)) {
+    const allowedCompanies = ['nyuuly', 'workjapan', ...GTM_MARKETS];
+    if (!company || !allowedCompanies.includes(company)) {
       return res.status(400).json({ error: 'Invalid company' });
     }
     if (!month) return res.status(400).json({ error: 'Month is required' });
@@ -3112,7 +3126,8 @@ app.post('/api/manual/brand-message', uploadLimiter, (req, res) => {
 app.post('/api/manual/campaigns', uploadLimiter, (req, res) => {
   try {
     const { company, month, campaigns } = req.body;
-    if (!company || !['nyuuly', 'workjapan'].includes(company)) {
+    const allowedCompanies = ['nyuuly', 'workjapan', ...GTM_MARKETS];
+    if (!company || !allowedCompanies.includes(company)) {
       return res.status(400).json({ error: 'Invalid company' });
     }
     if (!month) return res.status(400).json({ error: 'Month is required' });
@@ -3136,7 +3151,8 @@ app.post('/api/manual/campaigns', uploadLimiter, (req, res) => {
 app.post('/api/manual/app-downloads', uploadLimiter, (req, res) => {
   try {
     const { company, month, platforms } = req.body;
-    if (!company || !['nyuuly', 'workjapan'].includes(company)) {
+    const allowedCompanies = ['nyuuly', 'workjapan', ...GTM_MARKETS];
+    if (!company || !allowedCompanies.includes(company)) {
       return res.status(400).json({ error: 'Invalid company' });
     }
     if (!month) return res.status(400).json({ error: 'Month is required' });
@@ -3853,7 +3869,8 @@ app.get('/api/app-downloads', (req, res) => {
 
 app.get('/api/brand-message', (req, res) => {
   const { company, start, end } = req.query;
-  if (!company || !['nyuuly', 'workjapan'].includes(company)) {
+  const allowedCompanies = ['nyuuly', 'workjapan', ...GTM_MARKETS];
+  if (!company || !allowedCompanies.includes(company)) {
     return res.status(400).json({ error: 'Invalid company' });
   }
   const monthKey = start?.slice(0, 7);
@@ -4438,7 +4455,8 @@ app.get('/api/upload-history', (req, res) => {
 
 app.get('/api/upload-status-by-month', (req, res) => {
   const company = req.query.company || 'nyuuly';
-  if (!['nyuuly', 'workjapan'].includes(company)) {
+  const allowedCompanies = ['nyuuly', 'workjapan', ...GTM_MARKETS];
+  if (!allowedCompanies.includes(company)) {
     return res.status(400).json({ error: 'Invalid company' });
   }
   res.json(getUploadStatusByMonth(company));
@@ -4458,7 +4476,8 @@ app.get('/api/search-console', (req, res) => {
 
 app.get('/api/upload-status', (req, res) => {
   const company = req.query.company || 'nyuuly';
-  if (!['nyuuly', 'workjapan'].includes(company)) {
+  const allowedCompanies = ['nyuuly', 'workjapan', ...GTM_MARKETS];
+  if (!allowedCompanies.includes(company)) {
     return res.status(400).json({ error: 'Invalid company' });
   }
 

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GTM — Analytics Dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="gtm-page">
+  <nav class="nav">
+    <a href="/weekly" class="nav-brand">Analytics Dashboard</a>
+    <div class="nav-main">
+      <div class="nav-pills" aria-label="Primary navigation">
+        <a href="/weekly" class="nav-pill" data-nav="weekly">Weekly Brief</a>
+        <div class="nav-dropdown" id="gtmNavDropdown">
+          <button type="button" class="nav-pill nav-pill-dropdown" id="gtmNavToggle" aria-haspopup="true" aria-expanded="false">
+            GTM <span class="nav-dropdown-caret" aria-hidden="true">▾</span>
+          </button>
+          <div class="nav-dropdown-menu" id="gtmNavMenu" role="menu">
+            <a href="/gtm/nepal" class="nav-dropdown-item" role="menuitem" data-market="nepal">Nepal</a>
+            <a href="/gtm/vietnam" class="nav-dropdown-item" role="menuitem" data-market="vietnam">Vietnam</a>
+            <a href="/gtm/taiwan" class="nav-dropdown-item" role="menuitem" data-market="taiwan">Taiwan</a>
+          </div>
+        </div>
+        <a href="/combined" class="nav-pill" data-nav="combined">Combined</a>
+        <a href="/" class="nav-pill" data-nav="dashboard">Dashboard</a>
+        <a href="/campaigns" class="nav-pill" data-nav="campaigns">Campaigns</a>
+      </div>
+      <div class="nav-actions">
+        <a href="/upload" class="nav-pill nav-pill-upload" data-nav="upload">Upload</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="main gtm-main">
+    <div class="gtm-coming-soon">
+      <p class="gtm-eyebrow">GTM · <span id="gtmMarketLabel">Market</span></p>
+      <h1 class="gtm-title" id="gtmPageTitle">Coming Soon</h1>
+      <p class="gtm-copy">This market dashboard is under construction. Check back soon for GTM analytics and insights.</p>
+    </div>
+  </main>
+
+  <script src="/nav.js"></script>
+  <script src="/gtm.js"></script>
+</body>
+</html>
