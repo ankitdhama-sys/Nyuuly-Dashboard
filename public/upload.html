@@ -35,7 +35,7 @@
   <div class="upload-page upload-page-wide">
     <div class="upload-header">
       <h1>Monthly Data Upload</h1>
-      <p>Upload one CSV export per month for each file type. For the GA4 files, pick the month the file covers (e.g. upload Jan\u2013Jun 2026 one month at a time) so each month is stored as a clean calendar month for the Monthly comparison mode.</p>
+      <p>Upload one CSV export per month for each file type. For GA4 files, pick the month the file covers. Month-to-date exports keep their real date range from the CSV header (so totals are not under-counted when a data-through date is set).</p>
 
       <div class="form-group upload-company-row">
         <label for="company">Company</label>
@@ -87,7 +87,7 @@
         <h3>Social Channel Views (Manual)</h3>
         <span class="slot-badge slot-badge-pending" id="socialChannelsBadge">No data</span>
       </div>
-      <p class="slot-meta slot-meta-muted">Enter total monthly views for each social channel. These feed the <strong>Awareness</strong> stage total together with Search Console impressions.</p>
+      <p class="slot-meta slot-meta-muted">Enter total monthly views and current follower counts for each social channel. Views feed the <strong>Awareness</strong> stage total together with Search Console impressions. Followers are shown on the dashboard social charts.</p>
       <form class="entry-form" id="socialChannelsEntryForm">
         <div class="entry-form-row">
           <label for="socialChannelsMonth">Month</label>
@@ -96,17 +96,17 @@
         <div class="entry-table-wrap">
           <table class="entry-table">
             <thead>
-              <tr><th>Channel</th><th>Total Views</th></tr>
+              <tr><th>Channel</th><th>Total Views</th><th>Total Followers</th></tr>
             </thead>
             <tbody>
-              <tr><td>Facebook</td><td><input type="number" id="socialFacebookViews" min="0" placeholder="0"></td></tr>
-              <tr><td>Instagram</td><td><input type="number" id="socialInstagramViews" min="0" placeholder="0"></td></tr>
-              <tr><td>TikTok</td><td><input type="number" id="socialTiktokViews" min="0" placeholder="0"></td></tr>
-              <tr><td>YouTube</td><td><input type="number" id="socialYoutubeViews" min="0" placeholder="0"></td></tr>
+              <tr><td>Facebook</td><td><input type="number" id="socialFacebookViews" min="0" placeholder="0"></td><td><input type="number" id="socialFacebookFollowers" min="0" placeholder="0"></td></tr>
+              <tr><td>Instagram</td><td><input type="number" id="socialInstagramViews" min="0" placeholder="0"></td><td><input type="number" id="socialInstagramFollowers" min="0" placeholder="0"></td></tr>
+              <tr><td>TikTok</td><td><input type="number" id="socialTiktokViews" min="0" placeholder="0"></td><td><input type="number" id="socialTiktokFollowers" min="0" placeholder="0"></td></tr>
+              <tr><td>YouTube</td><td><input type="number" id="socialYoutubeViews" min="0" placeholder="0"></td><td><input type="number" id="socialYoutubeFollowers" min="0" placeholder="0"></td></tr>
             </tbody>
           </table>
         </div>
-        <button type="submit" class="btn-primary btn-slot" id="socialChannelsSaveBtn">Save Social Channel Views</button>
+        <button type="submit" class="btn-primary btn-slot" id="socialChannelsSaveBtn">Save Social Channel Data</button>
       </form>
     </div>
 
@@ -601,7 +601,7 @@
               <label>Month
                 <input type="month" class="slot-month" name="month" required>
               </label>
-              <span class="slot-month-hint">One file per month. Stored as this whole calendar month.</span>
+              <span class="slot-month-hint">One file per month. MTD exports keep the CSV date range; full-month exports use the selected month.</span>
             </div>`
           : '';
 
@@ -1046,21 +1046,30 @@
       if (!month) return;
       const { start, end } = monthToRange(month);
       const company = companySelect.value;
-      const ids = ['socialFacebookViews', 'socialInstagramViews', 'socialTiktokViews', 'socialYoutubeViews'];
-      ids.forEach((id) => { document.getElementById(id).value = ''; });
+      const viewIds = ['socialFacebookViews', 'socialInstagramViews', 'socialTiktokViews', 'socialYoutubeViews'];
+      const followerIds = ['socialFacebookFollowers', 'socialInstagramFollowers', 'socialTiktokFollowers', 'socialYoutubeFollowers'];
+      [...viewIds, ...followerIds].forEach((id) => { document.getElementById(id).value = ''; });
 
       try {
         const res = await fetch(`/api/social-channels?company=${company}&start=${start}&end=${end}`);
         const data = await res.json();
-        const map = {
+        const viewMap = {
           Facebook: 'socialFacebookViews',
           Instagram: 'socialInstagramViews',
           TikTok: 'socialTiktokViews',
           YouTube: 'socialYoutubeViews',
         };
+        const followerMap = {
+          Facebook: 'socialFacebookFollowers',
+          Instagram: 'socialInstagramFollowers',
+          TikTok: 'socialTiktokFollowers',
+          YouTube: 'socialYoutubeFollowers',
+        };
         for (const row of data.channels || []) {
-          const id = map[row.channel];
-          if (id) document.getElementById(id).value = row.views ?? '';
+          const viewId = viewMap[row.channel];
+          const followerId = followerMap[row.channel];
+          if (viewId) document.getElementById(viewId).value = row.views ?? '';
+          if (followerId) document.getElementById(followerId).value = row.followers ?? '';
         }
       } catch (err) {
         console.error('Failed to load social channel form data:', err);
@@ -1073,14 +1082,30 @@
       const month = document.getElementById('socialChannelsMonth').value;
       const company = companySelect.value;
       const channels = [
-        { channel: 'Facebook', views: document.getElementById('socialFacebookViews').value },
-        { channel: 'Instagram', views: document.getElementById('socialInstagramViews').value },
-        { channel: 'TikTok', views: document.getElementById('socialTiktokViews').value },
-        { channel: 'YouTube', views: document.getElementById('socialYoutubeViews').value },
-      ].filter((c) => c.views !== '');
+        {
+          channel: 'Facebook',
+          views: document.getElementById('socialFacebookViews').value,
+          followers: document.getElementById('socialFacebookFollowers').value,
+        },
+        {
+          channel: 'Instagram',
+          views: document.getElementById('socialInstagramViews').value,
+          followers: document.getElementById('socialInstagramFollowers').value,
+        },
+        {
+          channel: 'TikTok',
+          views: document.getElementById('socialTiktokViews').value,
+          followers: document.getElementById('socialTiktokFollowers').value,
+        },
+        {
+          channel: 'YouTube',
+          views: document.getElementById('socialYoutubeViews').value,
+          followers: document.getElementById('socialYoutubeFollowers').value,
+        },
+      ].filter((c) => c.views !== '' || c.followers !== '');
 
       if (!channels.length) {
-        showToast('Enter at least one channel view count', 'error');
+        showToast('Enter at least one channel view or follower count', 'error');
         return;
       }
 
@@ -1094,14 +1119,14 @@
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Save failed');
-        showToast(`Social channel views saved for ${data.month}`);
+        showToast(`Social channel data saved for ${data.month}`);
         await loadStatus();
         await loadHistory();
       } catch (err) {
         showToast(err.message, 'error');
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Save Social Channel Views';
+        btn.textContent = 'Save Social Channel Data';
       }
     }
 

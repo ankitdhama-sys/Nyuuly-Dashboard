@@ -95,16 +95,24 @@
         <span class="collapse-icon">▼</span>
       </div>
       <div class="section-body">
-        <p class="subsection-hint">Enter monthly views per channel on the <a href="/upload">upload page</a> (Facebook, Instagram, TikTok, YouTube). Top posts come from the Social CSV for the selected month.</p>
+        <p class="subsection-hint">Enter monthly views and follower counts per channel on the <a href="/upload">upload page</a> (Facebook, Instagram, TikTok, YouTube). Top posts come from the Social CSV for the selected month.</p>
         <div class="kpi-row" id="socialKpis"></div>
         <div class="chart-grid">
           <div class="chart-container">
             <div class="chart-header"><h3>Views by Platform — This Month</h3><button class="chart-download" data-chart="chartSocialPlatforms">PNG</button></div>
             <div class="chart-wrapper"><canvas id="chartSocialPlatforms"></canvas></div>
           </div>
+          <div class="chart-container">
+            <div class="chart-header"><h3>Followers by Platform — This Month</h3><button class="chart-download" data-chart="chartSocialFollowers">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartSocialFollowers"></canvas></div>
+          </div>
           <div class="chart-container full-width">
             <div class="chart-header"><h3>Platform Views by Month</h3><button class="chart-download" data-chart="chartSocialPlatformsByMonth">PNG</button></div>
             <div class="chart-wrapper"><canvas id="chartSocialPlatformsByMonth"></canvas></div>
+          </div>
+          <div class="chart-container full-width">
+            <div class="chart-header"><h3>Total Followers by Month</h3><button class="chart-download" data-chart="chartSocialFollowersByMonth">PNG</button></div>
+            <div class="chart-wrapper"><canvas id="chartSocialFollowersByMonth"></canvas></div>
           </div>
         </div>
         <h4 class="subsection-title">Top 10 Most Performing Content</h4>

@@ -230,6 +230,7 @@ function initDb() {
       month INTEGER NOT NULL,
       channel TEXT NOT NULL,
       views INTEGER DEFAULT 0,
+      followers INTEGER DEFAULT 0,
       upload_date TEXT DEFAULT (date('now')),
       UNIQUE(company, month_label, channel)
     );
@@ -335,6 +336,15 @@ function initDb() {
       updated_at TEXT DEFAULT (datetime('now'))
     );
   `);
+
+  ensureColumn('social_channel_views', 'followers', 'INTEGER DEFAULT 0');
+}
+
+function ensureColumn(table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
 }
 
 module.exports = { db, initDb, dbPath, isRailway, isVolumeBacked };

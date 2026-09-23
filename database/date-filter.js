@@ -180,12 +180,14 @@ function prorateUsersRows(rows, filterStart, filterEnd) {
     }
 
     const bucket = byChannel[channel];
-    const users = Math.round(row.total_users * fraction);
+    // GA4 User Acquisition exports are period totals for the CSV date range, not daily
+    // rates — never scale down by overlap fraction (that wrongly turns 550 MTD into ~423).
+    const users = row.total_users || 0;
     bucket.total_users += users;
-    bucket.new_users += Math.round(row.new_users * fraction);
-    bucket.returning_users += Math.round(row.returning_users * fraction);
-    bucket.event_count += Math.round(row.event_count * fraction);
-    bucket.key_events += Math.round(row.key_events * fraction);
+    bucket.new_users += row.new_users || 0;
+    bucket.returning_users += row.returning_users || 0;
+    bucket.event_count += row.event_count || 0;
+    bucket.key_events += row.key_events || 0;
     bucket._engagementTimeSum += row.avg_engagement_time * users;
     bucket._usersForTime += users;
   }

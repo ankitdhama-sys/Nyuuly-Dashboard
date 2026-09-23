@@ -238,19 +238,19 @@ function parseSocialCsv(content, company, monthKey = null) {
 
 function parseFunnelCsv(content, company, override, monthKey = null) {
   const lines = content.split('\n');
-  let dateRange = override?.dateRange || null;
+  let csvDateRange = null;
 
-  if (!dateRange) {
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('#')) {
-        const match = trimmed.match(/#\s*(\d{8})-(\d{8})/);
-        if (match) {
-          dateRange = `${match[1]}-${match[2]}`;
-        }
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('#')) {
+      const match = trimmed.match(/#\s*(\d{8})-(\d{8})/);
+      if (match) {
+        csvDateRange = `${match[1]}-${match[2]}`;
       }
     }
   }
+
+  const dateRange = resolveFunnelStoreDateRange(csvDateRange, override, monthKey);
 
   clearFunnelRowsForUpload(company, dateRange, monthKey);
 
@@ -291,8 +291,8 @@ function parseFunnelCsv(content, company, override, monthKey = null) {
 
 /**
  * Build explicit month-aligned dates from a 'YYYY-MM' key.
- * Used when the uploader picks a month, so the stored range is the whole
- * calendar month regardless of what the CSV header says.
+ * Used when the uploader picks a month, so month-scoped deletes and
+ * out-of-month exports can still land on a clean calendar month.
  */
 function monthRangeFromKey(month) {
   const m = /^(\d{4})-(\d{2})$/.exec((month || '').trim());
@@ -308,6 +308,50 @@ function monthRangeFromKey(month) {
     endDate: `${year}-${mm}-${dd}`,
     dateRange: `${year}${mm}01-${year}${mm}${dd}`,
   };
+}
+
+/**
+ * Decide which date range to store for a GA4 CSV.
+ *
+ * If the CSV already covers dates inside the selected month (typical MTD
+ * export like Sep 1–8), keep those real dates. Expanding MTD totals to a
+ * full calendar month makes "data through" proration under-count
+ * (e.g. 236 users × 8/30 ≈ 63).
+ *
+ * Only force the full-month override when the CSV range falls outside the
+ * selected month (legacy multi-month / remapped uploads).
+ */
+function resolveGa4StoreDates(header, override, monthKey = null) {
+  const csvStart = header?.startDate || null;
+  const csvEnd = header?.endDate || null;
+
+  if (!override?.startDate || !override?.endDate) {
+    return { startDate: csvStart, endDate: csvEnd };
+  }
+
+  if (csvStart && csvEnd && monthKey) {
+    const prefix = `${monthKey}-`;
+    if (csvStart.startsWith(prefix) && csvEnd.startsWith(prefix)) {
+      return { startDate: csvStart, endDate: csvEnd };
+    }
+  }
+
+  return { startDate: override.startDate, endDate: override.endDate };
+}
+
+/** Same idea as resolveGa4StoreDates for funnel exports (`YYYYMMDD-YYYYMMDD`). */
+function resolveFunnelStoreDateRange(csvDateRange, override, monthKey = null) {
+  if (!override?.dateRange) return csvDateRange || null;
+
+  if (csvDateRange && monthKey) {
+    const match = String(csvDateRange).match(/^(\d{8})-(\d{8})$/);
+    const monthCompact = monthKey.replace('-', '');
+    if (match?.[1]?.startsWith(monthCompact) && match?.[2]?.startsWith(monthCompact)) {
+      return csvDateRange;
+    }
+  }
+
+  return override.dateRange;
 }
 
 const GA4_DATED_TABLES = new Set(['pages_screens', 'user_acquisition', 'traffic_acquisition']);
@@ -514,8 +558,7 @@ function getUsersChannel(row) {
 
 function parseUsersCsv(content, company, override, monthKey = null) {
   const header = parseGa4Header(content);
-  const startDate = override?.startDate || header.startDate;
-  const endDate = override?.endDate || header.endDate;
+  const { startDate, endDate } = resolveGa4StoreDates(header, override, monthKey);
   clearGa4RowsForUpload('user_acquisition', company, startDate, endDate, monthKey);
 
   const lines = content.split('\n');
@@ -565,8 +608,7 @@ function getTrafficChannel(row) {
 
 function parseTrafficCsv(content, company, override = null, monthKey = null) {
   const header = parseGa4Header(content);
-  const startDate = override?.startDate || header.startDate;
-  const endDate = override?.endDate || header.endDate;
+  const { startDate, endDate } = resolveGa4StoreDates(header, override, monthKey);
   clearGa4RowsForUpload('traffic_acquisition', company, startDate, endDate, monthKey);
 
   const lines = content.split('\n');
@@ -612,8 +654,7 @@ function parseTrafficCsv(content, company, override = null, monthKey = null) {
 
 function parsePagesCsv(content, company, override, monthKey = null) {
   const header = parseGa4Header(content);
-  const startDate = override?.startDate || header.startDate;
-  const endDate = override?.endDate || header.endDate;
+  const { startDate, endDate } = resolveGa4StoreDates(header, override, monthKey);
   clearGa4RowsForUpload('pages_screens', company, startDate, endDate, monthKey);
 
   const lines = content.split('\n');
@@ -1022,6 +1063,53 @@ function getDataCoverageMeta(company, monthKey) {
   };
 }
 
+/**
+ * Older uploads stored MTD GA4 exports as the full calendar month (e.g. Sep 1–8
+ * totals labeled Sep 1–30). Combined with data-through proration that under-counts.
+ * Shrink those expanded end dates to the coverage through-date so totals display as uploaded.
+ */
+function repairExpandedMtdGa4Ranges(company, monthKey, throughDate) {
+  if (!company || !monthKey || !throughDate) return 0;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(throughDate)) return 0;
+  if (throughDate.slice(0, 7) !== monthKey) return 0;
+
+  const range = monthRangeFromKey(monthKey);
+  if (!range || throughDate >= range.endDate) return 0;
+
+  let changed = 0;
+  for (const table of GA4_DATED_TABLES) {
+    const result = db.prepare(`
+      UPDATE ${table}
+      SET end_date = ?
+      WHERE company = ?
+        AND start_date >= ?
+        AND start_date <= ?
+        AND end_date >= ?
+        AND end_date > ?
+    `).run(
+      throughDate,
+      company,
+      range.startDate,
+      throughDate,
+      throughDate,
+      throughDate
+    );
+    changed += result.changes || 0;
+  }
+
+  const throughCompact = throughDate.replace(/-/g, '');
+  const mtdRange = `${range.dateRange.slice(0, 8)}-${throughCompact}`;
+  const funnelResult = db.prepare(`
+    UPDATE funnel_data
+    SET date_range = ?
+    WHERE company = ?
+      AND date_range = ?
+  `).run(mtdRange, company, range.dateRange);
+  changed += funnelResult.changes || 0;
+
+  return changed;
+}
+
 /** KPIs where prorated MoM does not apply (rates, averages, positions). */
 const PRORATION_EXCLUDED_KEYS = new Set([
   'gscAvgPosition',
@@ -1119,6 +1207,7 @@ function resolveQueryEndForCoverage(company, start, end) {
   const monthKey = start.slice(0, 7);
   const meta = getDataCoverageMeta(company, monthKey);
   if (meta?.applies && meta.dataThroughDate <= end) {
+    repairExpandedMtdGa4Ranges(company, monthKey, meta.dataThroughDate);
     return meta.dataThroughDate;
   }
   return end;
@@ -1173,6 +1262,10 @@ function metricBlockWithProration(value, prevValue, coverageMeta, prevProratedOv
 }
 
 function buildKpisMapWithProration(company, monthKey, prevMonthKey, coverageMeta) {
+  if (coverageMeta?.applies) {
+    repairExpandedMtdGa4Ranges(company, monthKey, coverageMeta.dataThroughDate);
+  }
+
   const periodOpts = coverageMeta?.applies
     ? { throughDate: coverageMeta.dataThroughDate }
     : {};
@@ -1403,6 +1496,10 @@ function getWebsiteUsersKpisForMonth(company, monthKey, endOverride = null) {
   const range = monthKeyToDateRange(monthKey);
   if (!range) return { totalUsers: 0, newUsers: 0, returningUsers: 0 };
 
+  if (endOverride) {
+    repairExpandedMtdGa4Ranges(company, monthKey, endOverride);
+  }
+
   const end = endOverride && endOverride < range.end ? endOverride : range.end;
   const { clause, params } = buildGa4DateQuery(company, range.start, end);
   const rawRows = db.prepare(`SELECT * FROM user_acquisition ${clause}`).all(...params);
@@ -1451,22 +1548,35 @@ function getFunnelMonthlyAggregates(company, monthKey, endOverride = null) {
   return { funnelCompletion, funnelActiveUsers };
 }
 
-function getWebsiteUsersForMonth(company, monthKey) {
-  return getWebsiteUsersKpisForMonth(company, monthKey).totalUsers;
+function getWebsiteUsersForMonth(company, monthKey, endOverride = null) {
+  return getWebsiteUsersKpisForMonth(company, monthKey, endOverride).totalUsers;
 }
 
-function saveSocialChannelRow(company, parsedMonth, channel, views) {
+function saveSocialChannelRow(company, parsedMonth, channel, views, followers) {
+  const existing = db.prepare(`
+    SELECT views, followers FROM social_channel_views
+    WHERE company = ? AND month_label = ? AND channel = ?
+  `).get(company, parsedMonth.month_label, channel);
+
+  const nextViews = views !== '' && views != null
+    ? parseNum(views)
+    : (existing?.views ?? 0);
+  const nextFollowers = followers !== '' && followers != null
+    ? parseNum(followers)
+    : (existing?.followers ?? 0);
+
   db.prepare(`
     INSERT OR REPLACE INTO social_channel_views
-    (company, month_label, year, month, channel, views)
-    VALUES (?, ?, ?, ?, ?, ?)
+    (company, month_label, year, month, channel, views, followers)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(
     company,
     parsedMonth.month_label,
     parsedMonth.year,
     parsedMonth.month,
     channel,
-    parseNum(views)
+    nextViews,
+    nextFollowers
   );
 }
 
@@ -1475,13 +1585,15 @@ function getSocialChannelViewsForMonth(company, monthKey) {
   const params = company && company !== 'all' ? [company, monthKey] : [monthKey];
 
   const total = db.prepare(`
-    SELECT COALESCE(SUM(views), 0) AS totalViews
+    SELECT
+      COALESCE(SUM(views), 0) AS totalViews,
+      COALESCE(SUM(followers), 0) AS totalFollowers
     FROM social_channel_views
     WHERE ${coFilter} printf('%04d-%02d', year, month) = ?
   `).get(...params);
 
   const channels = db.prepare(`
-    SELECT channel, views
+    SELECT channel, views, followers
     FROM social_channel_views
     WHERE ${coFilter} printf('%04d-%02d', year, month) = ?
     ORDER BY views DESC
@@ -1489,6 +1601,7 @@ function getSocialChannelViewsForMonth(company, monthKey) {
 
   return {
     totalViews: total?.totalViews || 0,
+    totalFollowers: total?.totalFollowers || 0,
     channels,
   };
 }
@@ -3085,12 +3198,20 @@ app.post('/api/manual/social-channels', uploadLimiter, (req, res) => {
     let saved = 0;
     for (const row of channels) {
       if (!row.channel || !SOCIAL_CHANNELS.includes(row.channel)) continue;
-      if (row.views === '' || row.views == null) continue;
-      saveSocialChannelRow(company, parsedMonth, row.channel, row.views);
+      const hasViews = row.views !== '' && row.views != null;
+      const hasFollowers = row.followers !== '' && row.followers != null;
+      if (!hasViews && !hasFollowers) continue;
+      saveSocialChannelRow(
+        company,
+        parsedMonth,
+        row.channel,
+        hasViews ? row.views : null,
+        hasFollowers ? row.followers : null
+      );
       saved++;
     }
 
-    if (!saved) return res.status(400).json({ error: 'No valid channel rows to save' });
+    if (!saved) return res.status(400).json({ error: 'Enter at least one channel view or follower count' });
 
     logUpload(`Manual entry — ${parsedMonth.month_label}`, company, 'social-channels', saved, 0);
     res.json({ success: true, rowsAdded: saved, month: parsedMonth.month_label, company });
@@ -3461,13 +3582,22 @@ app.get('/api/social-channels/history', (req, res) => {
   const months = getAvailableMonths(company).slice(-6);
   const history = months.map((monthKey) => {
     const data = getSocialChannelViewsForMonth(company, monthKey);
-    const channelMap = Object.fromEntries(SOCIAL_CHANNELS.map((c) => [c, 0]));
-    for (const row of data.channels) channelMap[row.channel] = row.views;
+    const viewsMap = Object.fromEntries(SOCIAL_CHANNELS.map((c) => [c, 0]));
+    const followersMap = Object.fromEntries(SOCIAL_CHANNELS.map((c) => [c, 0]));
+    for (const row of data.channels) {
+      viewsMap[row.channel] = row.views;
+      followersMap[row.channel] = row.followers || 0;
+    }
     return {
       month: monthKey,
       label: monthKeyLabel(monthKey),
       totalViews: data.totalViews,
-      channels: SOCIAL_CHANNELS.map((channel) => ({ channel, views: channelMap[channel] || 0 })),
+      totalFollowers: data.totalFollowers,
+      channels: SOCIAL_CHANNELS.map((channel) => ({
+        channel,
+        views: viewsMap[channel] || 0,
+        followers: followersMap[channel] || 0,
+      })),
     };
   });
   res.json({ history, filter: { company } });
@@ -3476,11 +3606,15 @@ app.get('/api/social-channels/history', (req, res) => {
 app.get('/api/users/history', (req, res) => {
   const { company } = req.query;
   const months = getAvailableMonths(company).slice(-6);
-  const history = months.map((monthKey) => ({
-    month: monthKey,
-    label: monthKeyLabel(monthKey),
-    totalUsers: getWebsiteUsersForMonth(company, monthKey),
-  }));
+  const history = months.map((monthKey) => {
+    const coverageMeta = getDataCoverageMeta(company, monthKey);
+    const endOverride = coverageMeta?.applies ? coverageMeta.dataThroughDate : null;
+    return {
+      month: monthKey,
+      label: monthKeyLabel(monthKey),
+      totalUsers: getWebsiteUsersForMonth(company, monthKey, endOverride),
+    };
+  });
   res.json({ history, filter: { company } });
 });
 
@@ -3889,12 +4023,18 @@ app.get('/api/social-channels', (req, res) => {
   const { company, start, end } = req.query;
   const monthKey = start?.slice(0, 7);
   if (!monthKey) {
-    return res.json({ totalViews: 0, channels: [], kpis: { totalViews: 0 }, filter: { company, start, end } });
+    return res.json({
+      totalViews: 0,
+      totalFollowers: 0,
+      channels: [],
+      kpis: { totalViews: 0, totalFollowers: 0 },
+      filter: { company, start, end },
+    });
   }
   const data = getSocialChannelViewsForMonth(company, monthKey);
   res.json({
     ...data,
-    kpis: { totalViews: data.totalViews },
+    kpis: { totalViews: data.totalViews, totalFollowers: data.totalFollowers },
     filter: { company, start, end, month: monthKey },
   });
 });

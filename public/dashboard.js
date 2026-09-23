@@ -2182,12 +2182,14 @@ function renderSocialKpis(socialChannels, socialCsv, deltas, socialChannelHistor
   if (!el) return;
 
   const channelMap = Object.fromEntries((socialChannels?.channels || []).map((c) => [c.channel, c.views]));
+  const followerMap = Object.fromEntries((socialChannels?.channels || []).map((c) => [c.channel, c.followers || 0]));
   const manualTotal = deltas?.socialChannelViews?.value ?? socialChannels?.totalViews ?? 0;
+  const followerTotal = socialChannels?.totalFollowers ?? 0;
   const csvPosts = socialCsv?.posts?.length || 0;
   const platforms = ['Facebook', 'Instagram', 'TikTok', 'YouTube'];
 
-  if (!manualTotal && !csvPosts) {
-    el.innerHTML = `<div class="empty-state">No social data for this month — enter channel views on the ${uploadPageLink()} or upload a Social CSV.</div>`;
+  if (!manualTotal && !followerTotal && !csvPosts) {
+    el.innerHTML = `<div class="empty-state">No social data for this month — enter channel views and followers on the ${uploadPageLink()} or upload a Social CSV.</div>`;
     return;
   }
 
@@ -2197,11 +2199,21 @@ function renderSocialKpis(socialChannels, socialCsv, deltas, socialChannelHistor
       <div class="value">${formatNum(manualTotal)}</div>
       ${deltaBadge(deltas, 'socialChannelViews')}
     </div>
+    <div class="kpi-card">
+      <div class="label">Total Followers</div>
+      <div class="value">${formatNum(followerTotal)}</div>
+    </div>
     ${platforms.map((platform) => `
       <div class="kpi-card">
-        <div class="label">${platform}</div>
+        <div class="label">${platform} Views</div>
         <div class="value">${formatNum((deltas?.[socialChannelDeltaKey(platform)]?.value ?? channelMap[platform]) || 0)}</div>
         ${deltaBadge(deltas, socialChannelDeltaKey(platform))}
+      </div>
+    `).join('')}
+    ${platforms.map((platform) => `
+      <div class="kpi-card">
+        <div class="label">${platform} Followers</div>
+        <div class="value">${formatNum(followerMap[platform] || 0)}</div>
       </div>
     `).join('')}
     ${csvPosts || deltas?.postCount?.value != null ? `
@@ -2266,6 +2278,63 @@ function renderChartSocialPlatformsByMonth(history) {
         x: { stacked: false, ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
         y: { stacked: false, ticks: { color: COLORS.text }, grid: { color: COLORS.grid } },
       },
+    },
+  });
+}
+
+function renderChartSocialFollowers(channels) {
+  destroyChart('chartSocialFollowers');
+  const ctx = document.getElementById('chartSocialFollowers');
+  if (!ctx) return;
+
+  const labels = ['Facebook', 'Instagram', 'TikTok', 'YouTube'];
+  const channelMap = Object.fromEntries((channels || []).map((c) => [c.channel, c.followers || 0]));
+  const data = labels.map((l) => channelMap[l] || 0);
+
+  if (!data.some((v) => v > 0)) return;
+
+  charts.chartSocialFollowers = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Followers',
+        data,
+        backgroundColor: labels.map((l) => SOCIAL_PLATFORM_COLORS[l]),
+      }],
+    },
+    options: {
+      ...chartDefaults(),
+      plugins: { ...chartDefaults().plugins, legend: { display: false } },
+    },
+  });
+}
+
+function renderChartSocialFollowersByMonth(history) {
+  destroyChart('chartSocialFollowersByMonth');
+  const ctx = document.getElementById('chartSocialFollowersByMonth');
+  if (!ctx || !history?.length) return;
+
+  const labels = history.map((h) => h.label.replace(/^\d{4}\s/, ''));
+  const totals = history.map((h) => h.totalFollowers || 0);
+  if (!totals.some((v) => v > 0)) return;
+
+  charts.chartSocialFollowersByMonth = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Total followers',
+        data: totals,
+        borderColor: companyBrandColor(),
+        backgroundColor: 'rgba(79, 142, 247, 0.15)',
+        fill: true,
+        tension: 0.3,
+      }],
+    },
+    options: {
+      ...chartDefaults(),
+      plugins: { ...chartDefaults().plugins, legend: { display: false } },
     },
   });
 }
@@ -2846,7 +2915,9 @@ async function loadDashboard() {
     renderSocialSectionContribution(journeys, deltas);
     renderSocialKpis(socialChannels, social, deltas, socialChannelHistory);
     renderChartSocialPlatforms(socialChannels?.channels || []);
+    renderChartSocialFollowers(socialChannels?.channels || []);
     renderChartSocialPlatformsByMonth(socialChannelHistory?.history || []);
+    renderChartSocialFollowersByMonth(socialChannelHistory?.history || []);
     renderTopContentTable(social.topPosts || []);
 
     renderUsersKpis(users.kpis, deltas);
