@@ -80,45 +80,69 @@ function prorateTrafficRows(rows, filterStart, filterEnd) {
     .sort((a, b) => b.sessions - a.sessions);
 }
 
+function normalizePagePathForAggregate(path) {
+  if (!path) return '';
+  let p = String(path).trim();
+  if (p.includes(' | ')) p = p.split(' | ')[0].trim();
+  if (p.includes(' + ')) p = p.split(' + ')[0].trim();
+  try {
+    if (p.startsWith('http://') || p.startsWith('https://')) {
+      p = new URL(p).pathname;
+    }
+  } catch (_) { /* keep raw path */ }
+  if (!p.startsWith('/')) p = `/${p}`;
+  return p.replace(/\/+$/, '') || '/';
+}
+
+function pageExportRowScore(row, filterStart, filterEnd) {
+  const end = String(row.end_date || '');
+  const start = String(row.start_date || '');
+  let score = 0;
+  if (filterEnd && end === filterEnd) score += 100;
+  else if (filterEnd && end <= filterEnd) score += 60;
+  const spanDays = dayCount(start, end);
+  score += Math.max(0, 31 - Math.min(spanDays, 31));
+  score += (row.active_users || 0) / 1_000_000;
+  return score;
+}
+
+function pickBestPageExportRow(candidate, incumbent, filterStart, filterEnd) {
+  if (!incumbent) return candidate;
+  const cs = pageExportRowScore(candidate, filterStart, filterEnd);
+  const is = pageExportRowScore(incumbent, filterStart, filterEnd);
+  if (cs !== is) return cs > is ? candidate : incumbent;
+  if (String(candidate.end_date || '') !== String(incumbent.end_date || '')) {
+    return String(candidate.end_date || '') > String(incumbent.end_date || '')
+      ? candidate
+      : incumbent;
+  }
+  return (candidate.active_users || 0) >= (incumbent.active_users || 0)
+    ? candidate
+    : incumbent;
+}
+
 function proratePagesRows(rows, filterStart, filterEnd) {
-  const byPath = {};
+  const byPath = new Map();
 
   for (const row of rows) {
     const fraction = overlapFraction(row.start_date, row.end_date, filterStart, filterEnd);
     if (fraction <= 0) continue;
 
-    const path = row.page_path;
-    if (!byPath[path]) {
-      byPath[path] = {
-        ...row,
-        views: 0,
-        active_users: 0,
-        event_count: 0,
-        key_events: 0,
-        _engagementTimeSum: 0,
-        _usersForTime: 0,
-      };
-    }
-
-    const bucket = byPath[path];
-    // GA4 Pages exports are period totals for the CSV date range, not daily rates.
-    const views = row.views || 0;
-    const users = row.active_users || 0;
-    bucket.views += views;
-    bucket.active_users += users;
-    bucket.event_count += row.event_count || 0;
-    bucket.key_events += row.key_events || 0;
-    bucket._engagementTimeSum += row.avg_engagement_time * users;
-    bucket._usersForTime += users;
+    const path = normalizePagePathForAggregate(row.page_path);
+    const normalized = {
+      ...row,
+      page_path: path,
+      views: row.views || 0,
+      active_users: row.active_users || 0,
+      event_count: row.event_count || 0,
+      key_events: row.key_events || 0,
+      avg_engagement_time: row.avg_engagement_time || 0,
+    };
+    const existing = byPath.get(path);
+    byPath.set(path, pickBestPageExportRow(normalized, existing, filterStart, filterEnd));
   }
 
-  return Object.values(byPath)
-    .map((row) => ({
-      ...row,
-      views_per_user: row.active_users > 0 ? row.views / row.active_users : 0,
-      avg_engagement_time: row._usersForTime > 0 ? row._engagementTimeSum / row._usersForTime : 0,
-    }))
-    .sort((a, b) => b.views - a.views);
+  return [...byPath.values()].sort((a, b) => (b.views || 0) - (a.views || 0));
 }
 
 function prorateFunnelRows(rows, filterStart, filterEnd) {
@@ -267,4 +291,6 @@ module.exports = {
   websiteUsersSourceBreakdown,
   websiteUsersSourceBreakdownFromChannelMap,
   dayCount,
+  normalizePagePathForAggregate,
+  pickBestPageExportRow,
 };

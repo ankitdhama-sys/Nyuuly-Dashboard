@@ -13,6 +13,8 @@ const {
   usersKpisFromRows,
   websiteUsersSourceBreakdown,
   websiteUsersSourceBreakdownFromChannelMap,
+  normalizePagePathForAggregate,
+  pickBestPageExportRow,
 } = require('./database/date-filter');
 const {
   FILE_TYPES,
@@ -672,7 +674,7 @@ function parsePagesCsv(content, company, override, monthKey = null) {
   let skipped = 0;
 
   for (const row of rows) {
-    const pagePath = row['Page path and screen class'];
+    const pagePath = normalizePagePathForAggregate(row['Page path and screen class']);
     if (!pagePath) continue;
 
     const result = stmt.run(
@@ -1966,9 +1968,13 @@ const MOBILE_SIM_FLOW_STEPS = [
   { key: 'confirm', label: 'Confirm', path: '/mobile/sim/apply/confirm' },
 ];
 
+const PAGE_PATH_LOCALES = new Set(['ja', 'en', 'vi', 'ne', 'zh', 'ko', 'th', 'id', 'np']);
+
 function normalizePagePath(path) {
   if (!path) return '';
   let p = String(path).trim();
+  if (p.includes(' | ')) p = p.split(' | ')[0].trim();
+  if (p.includes(' + ')) p = p.split(' + ')[0].trim();
   try {
     if (p.startsWith('http://') || p.startsWith('https://')) {
       p = new URL(p).pathname;
@@ -1976,6 +1982,20 @@ function normalizePagePath(path) {
   } catch (_) { /* keep raw path */ }
   if (!p.startsWith('/')) p = `/${p}`;
   return p.replace(/\/+$/, '') || '/';
+}
+
+/** Strip locale prefix so /ja/mobile/sim/apply matches the Mobile Sim Apply step. */
+function canonicalPagePath(path) {
+  const p = normalizePagePath(path);
+  const match = p.match(/^\/([a-z]{2})(\/.*)$/);
+  if (match && PAGE_PATH_LOCALES.has(match[1])) {
+    return match[2] || '/';
+  }
+  return p;
+}
+
+function pagePathMatchesStep(pagePath, stepPath) {
+  return canonicalPagePath(pagePath) === normalizePagePath(stepPath);
 }
 
 function getPageActiveUsersForPaths(company, monthKey, paths, endOverride = null) {
@@ -1987,17 +2007,26 @@ function getPageActiveUsersForPaths(company, monthKey, paths, endOverride = null
   }
 
   const end = endOverride && endOverride < range.end ? endOverride : range.end;
-  const targets = new Set(paths.map(normalizePagePath));
   const { clause, params } = buildGa4DateQuery(company, range.start, end);
   const rawRows = db.prepare(`
-    SELECT page_path, active_users
+    SELECT page_path, start_date, end_date, active_users
     FROM pages_screens ${clause}
   `).all(...params);
   const rows = proratePagesRows(rawRows, range.start, end);
 
   let total = 0;
-  for (const row of rows) {
-    if (targets.has(normalizePagePath(row.page_path))) {
+  for (const stepPath of paths) {
+    const byVariant = new Map();
+    for (const row of rows) {
+      if (!pagePathMatchesStep(row.page_path, stepPath)) continue;
+      const variant = normalizePagePath(row.page_path);
+      const existing = byVariant.get(variant);
+      byVariant.set(
+        variant,
+        pickBestPageExportRow(row, existing, range.start, end),
+      );
+    }
+    for (const row of byVariant.values()) {
       total += row.active_users || 0;
     }
   }
@@ -2025,7 +2054,7 @@ function getPageUsersMapForMonth(company, monthKey, endOverride = null) {
   const rows = proratePagesRows(rawRows, range.start, end);
   const map = {};
   for (const row of rows) {
-    const p = normalizePagePath(row.page_path);
+    const p = canonicalPagePath(row.page_path);
     map[p] = (map[p] || 0) + (row.active_users || 0);
   }
   return map;
