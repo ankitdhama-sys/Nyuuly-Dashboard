@@ -101,12 +101,13 @@ function proratePagesRows(rows, filterStart, filterEnd) {
     }
 
     const bucket = byPath[path];
-    const views = Math.round(row.views * fraction);
-    const users = Math.round(row.active_users * fraction);
+    // GA4 Pages exports are period totals for the CSV date range, not daily rates.
+    const views = row.views || 0;
+    const users = row.active_users || 0;
     bucket.views += views;
     bucket.active_users += users;
-    bucket.event_count += Math.round(row.event_count * fraction);
-    bucket.key_events += Math.round(row.key_events * fraction);
+    bucket.event_count += row.event_count || 0;
+    bucket.key_events += row.key_events || 0;
     bucket._engagementTimeSum += row.avg_engagement_time * users;
     bucket._usersForTime += users;
   }

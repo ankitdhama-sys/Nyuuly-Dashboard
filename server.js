@@ -1982,6 +1982,10 @@ function getPageActiveUsersForPaths(company, monthKey, paths, endOverride = null
   const range = monthKeyToDateRange(monthKey);
   if (!range || !paths?.length) return 0;
 
+  if (endOverride) {
+    repairExpandedMtdGa4Ranges(company, monthKey, endOverride);
+  }
+
   const end = endOverride && endOverride < range.end ? endOverride : range.end;
   const targets = new Set(paths.map(normalizePagePath));
   const { clause, params } = buildGa4DateQuery(company, range.start, end);
@@ -2007,6 +2011,11 @@ function getPageActiveUsersForPath(company, monthKey, path, endOverride = null) 
 function getPageUsersMapForMonth(company, monthKey, endOverride = null) {
   const range = monthKeyToDateRange(monthKey);
   if (!range) return {};
+
+  if (endOverride) {
+    repairExpandedMtdGa4Ranges(company, monthKey, endOverride);
+  }
+
   const end = endOverride && endOverride < range.end ? endOverride : range.end;
   const { clause, params } = buildGa4DateQuery(company, range.start, end);
   const rawRows = db.prepare(`
@@ -3761,7 +3770,15 @@ app.get('/api/mobile-sim-flow/history', (req, res) => {
   }
   const months = getAvailableMonths(company).slice(-6);
   const history = months.map((monthKey) => {
-    const { steps } = getMobileSimFlowForMonth(company, monthKey);
+    const coverageMeta = getDataCoverageMeta(company, monthKey);
+    const prevKey = (() => {
+      const all = getAvailableMonths(company);
+      const idx = all.indexOf(monthKey);
+      return idx > 0 ? all[idx - 1] : null;
+    })();
+    const { steps } = {
+      steps: buildMobileSimFlowSteps(company, monthKey, prevKey, coverageMeta),
+    };
     const entry = {
       month: monthKey,
       label: monthKeyLabel(monthKey),
