@@ -625,12 +625,12 @@ function renderFunnelPipeline(journeys, platform, applicants, social, users, del
       anchor: 'stage-proceed-nyuuly',
       num: 4,
       label: 'Proceed (Uses)',
-      raw: mobileSimFlow?.steps?.find((s) => s.key === 'apply')?.activeUsers || 0,
+      raw: mobileSimStepViews(mobileSimFlow?.steps?.find((s) => s.key === 'apply')) || 0,
       deltaKey: 'mobileSimApply',
       deltas,
       stepDelta: mobileSimFlow?.steps?.find((s) => s.key === 'apply'),
       conversionHint: 'of subscribers started the Mobile Sim application',
-      detail: `${formatNum(mobileSimFlow?.steps?.find((s) => s.key === 'confirm')?.activeUsers)} reached Confirm`,
+      detail: `${formatNum(mobileSimStepViews(mobileSimFlow?.steps?.find((s) => s.key === 'confirm')))} Confirm page views`,
     },
     {
       anchor: 'stage-result-nyuuly',
@@ -879,6 +879,10 @@ function stepMoMBadge(step) {
   return metricDeltasHtml(step);
 }
 
+function mobileSimStepViews(step) {
+  return step?.views ?? step?.activeUsers ?? 0;
+}
+
 function renderMobileSimFlowSection(flowData, historyData, monthly) {
   const kpiEl = document.getElementById('mobileSimFlowKpis');
   const funnelEl = document.getElementById('mobileSimFlowFunnel');
@@ -886,7 +890,7 @@ function renderMobileSimFlowSection(flowData, historyData, monthly) {
   if (!kpiEl || state.company !== 'nyuuly') return;
 
   const steps = flowData?.steps || [];
-  const hasData = steps.some((s) => s.activeUsers > 0);
+  const hasData = steps.some((s) => mobileSimStepViews(s) > 0);
 
   if (!hasData) {
     if (funnelEl) funnelEl.innerHTML = '';
@@ -905,8 +909,8 @@ function renderMobileSimFlowSection(flowData, historyData, monthly) {
     funnelEl.innerHTML = steps.map((step, i) => `
       <div class="mobile-sim-step">
         <div class="mobile-sim-step-label">${step.label}</div>
-        <div class="mobile-sim-step-value">${formatNum(step.activeUsers)}</div>
-        ${step.fromPrevStepPct != null ? `<div class="funnel-step-conversion"><span class="funnel-step-conversion-pct">${formatPctPoints(step.fromPrevStepPct)}</span><span class="funnel-step-conversion-desc">continued from the previous Mobile Sim step</span></div>` : ''}
+        <div class="mobile-sim-step-value">${formatNum(mobileSimStepViews(step))}</div>
+        ${step.fromPrevStepPct != null ? `<div class="funnel-step-conversion"><span class="funnel-step-conversion-pct">${formatPctPoints(step.fromPrevStepPct)}</span><span class="funnel-step-conversion-desc">of previous step page views</span></div>` : ''}
       </div>
       ${i < steps.length - 1 ? '<div class="mobile-sim-arrow">→</div>' : ''}
     `).join('');
@@ -917,7 +921,7 @@ function renderMobileSimFlowSection(flowData, historyData, monthly) {
     ${steps.map((step) => `
       <div class="kpi-card">
         <div class="label">${step.label}</div>
-        <div class="value">${formatNum(step.activeUsers)}</div>
+        <div class="value">${formatNum(mobileSimStepViews(step))}</div>
         ${stepMoMBadge(step)}
         <div class="kpi-sub">${step.path}</div>
       </div>
@@ -932,7 +936,7 @@ function renderMobileSimFlowSection(flowData, historyData, monthly) {
             <tr>
               <th>Step</th>
               <th>Page path</th>
-              <th>Active users</th>
+              <th>Page views</th>
               <th>MoM</th>
               <th>From previous step</th>
             </tr>
@@ -942,7 +946,7 @@ function renderMobileSimFlowSection(flowData, historyData, monthly) {
               <tr>
                 <td><strong>${i + 1}. ${step.label}</strong></td>
                 <td><code>${step.path}</code></td>
-                <td>${formatNum(step.activeUsers)}</td>
+                <td>${formatNum(mobileSimStepViews(step))}</td>
                 <td>${stepMoMBadge(step)}</td>
                 <td>${step.fromPrevStepPct != null ? formatPctPoints(step.fromPrevStepPct) : '—'}</td>
               </tr>
@@ -962,7 +966,7 @@ function renderChartMobileSimFunnel(steps) {
   const ctx = document.getElementById('chartMobileSimFunnel');
   if (!ctx || !steps?.length) return;
 
-  const hasData = steps.some((s) => s.activeUsers > 0);
+  const hasData = steps.some((s) => mobileSimStepViews(s) > 0);
   if (!hasData) return;
 
   charts.chartMobileSimFunnel = new Chart(ctx, {
@@ -970,8 +974,8 @@ function renderChartMobileSimFunnel(steps) {
     data: {
       labels: steps.map((s) => s.label),
       datasets: [{
-        label: 'Active users',
-        data: steps.map((s) => s.activeUsers),
+        label: 'Page views',
+        data: steps.map((s) => mobileSimStepViews(s)),
         backgroundColor: MOBILE_SIM_FLOW_STEPS.map((s) => s.color),
       }],
     },

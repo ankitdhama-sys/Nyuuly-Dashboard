@@ -102,7 +102,7 @@ const NYUULY_FUNNEL_STAGES = [
     number: 4,
     label: 'Proceed (Uses)',
     question: 'How many users move through Mobile Sim apply and Compass page paths?',
-    summary: 'Mobile Sim funnel (Apply → Confirm) and Compass path exploration (/compass → categories → sub-pages) from Pages CSV active users.',
+    summary: 'Mobile Sim funnel (Apply → Confirm) from Pages CSV page views; Compass path exploration from active users.',
     anchor: 'stage-proceed-nyuuly',
     dataSources: ['Pages CSV (GA4)'],
     journeyIds: ['welcome-package', 'nyuuly-application'],

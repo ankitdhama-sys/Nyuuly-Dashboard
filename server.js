@@ -1998,7 +1998,7 @@ function pagePathMatchesStep(pagePath, stepPath) {
   return canonicalPagePath(pagePath) === normalizePagePath(stepPath);
 }
 
-function getPageActiveUsersForPaths(company, monthKey, paths, endOverride = null) {
+function getPageMetricForPaths(company, monthKey, paths, metric = 'active_users', endOverride = null) {
   const range = monthKeyToDateRange(monthKey);
   if (!range || !paths?.length) return 0;
 
@@ -2009,7 +2009,7 @@ function getPageActiveUsersForPaths(company, monthKey, paths, endOverride = null
   const end = endOverride && endOverride < range.end ? endOverride : range.end;
   const { clause, params } = buildGa4DateQuery(company, range.start, end);
   const rawRows = db.prepare(`
-    SELECT page_path, start_date, end_date, active_users
+    SELECT page_path, start_date, end_date, views, active_users
     FROM pages_screens ${clause}
   `).all(...params);
   const rows = proratePagesRows(rawRows, range.start, end);
@@ -2027,14 +2027,26 @@ function getPageActiveUsersForPaths(company, monthKey, paths, endOverride = null
       );
     }
     for (const row of byVariant.values()) {
-      total += row.active_users || 0;
+      total += row[metric] || 0;
     }
   }
   return total;
 }
 
+function getPageActiveUsersForPaths(company, monthKey, paths, endOverride = null) {
+  return getPageMetricForPaths(company, monthKey, paths, 'active_users', endOverride);
+}
+
+function getPageViewsForPaths(company, monthKey, paths, endOverride = null) {
+  return getPageMetricForPaths(company, monthKey, paths, 'views', endOverride);
+}
+
 function getPageActiveUsersForPath(company, monthKey, path, endOverride = null) {
   return getPageActiveUsersForPaths(company, monthKey, [path], endOverride);
+}
+
+function getPageViewsForPath(company, monthKey, path, endOverride = null) {
+  return getPageViewsForPaths(company, monthKey, [path], endOverride);
 }
 
 function getPageUsersMapForMonth(company, monthKey, endOverride = null) {
@@ -2137,27 +2149,34 @@ function buildMobileSimFlowSteps(company, monthKey, prevMonthKey = null, coverag
     : null;
 
   const stepsBuilt = MOBILE_SIM_FLOW_STEPS.map((step) => {
-    const partial = getPageActiveUsersForPath(company, monthKey, step.path, partialEnd);
-    const full = getPageActiveUsersForPath(company, monthKey, step.path);
-    const prevActiveUsers = prevMonthKey
-      ? getPageActiveUsersForPath(company, prevMonthKey, step.path)
+    const partial = getPageViewsForPath(company, monthKey, step.path, partialEnd);
+    const full = getPageViewsForPath(company, monthKey, step.path);
+    const prevViews = prevMonthKey
+      ? getPageViewsForPath(company, prevMonthKey, step.path)
       : null;
     const prevSamePeriod = prevMonthKey && prevPartialEnd
-      ? getPageActiveUsersForPath(company, prevMonthKey, step.path, prevPartialEnd)
+      ? getPageViewsForPath(company, prevMonthKey, step.path, prevPartialEnd)
       : null;
+    const mom = buildStepMoMFields(partial, full, prevViews, coverageMeta, prevSamePeriod);
     return {
       key: step.key,
       label: step.label,
       path: step.path,
       url: `https://nyuuly.com${step.path}`,
-      ...buildStepMoMFields(partial, full, prevActiveUsers, coverageMeta, prevSamePeriod),
+      views: mom.activeUsers,
+      prevViews: mom.prevActiveUsers,
+      deltaPct: mom.deltaPct,
+      prevProratedValue: mom.prevProratedValue,
+      proratedDeltaPct: mom.proratedDeltaPct,
+      activeUsers: mom.activeUsers,
+      prevActiveUsers: mom.prevActiveUsers,
     };
   });
 
   return stepsBuilt.map((step, index) => {
-    const prevStepUsers = index > 0 ? stepsBuilt[index - 1].activeUsers : null;
-    const fromPrevStepPct = index > 0 && prevStepUsers > 0
-      ? Math.round((step.activeUsers / prevStepUsers) * 1000) / 10
+    const prevStepViews = index > 0 ? stepsBuilt[index - 1].views : null;
+    const fromPrevStepPct = index > 0 && prevStepViews > 0
+      ? Math.round((step.views / prevStepViews) * 1000) / 10
       : null;
     return { ...step, fromPrevStepPct };
   });
@@ -2911,13 +2930,13 @@ function buildWeeklyBriefForCompany(company, monthKey, prevMonthKey, prevMonthLa
     const prevPartialEnd = coverageMeta?.applies && prevMonthKey
       ? monthPartialEndIso(prevMonthKey, coverageMeta.dayOfMonth)
       : null;
-    const applyPartial = applyPath ? getPageActiveUsersForPath(company, monthKey, applyPath, partialEnd) : 0;
-    const applyFull = applyPath ? getPageActiveUsersForPath(company, monthKey, applyPath) : 0;
+    const applyPartial = applyPath ? getPageViewsForPath(company, monthKey, applyPath, partialEnd) : 0;
+    const applyFull = applyPath ? getPageViewsForPath(company, monthKey, applyPath) : 0;
     const prevApply = prevMonthKey && applyPath
-      ? getPageActiveUsersForPath(company, prevMonthKey, applyPath)
+      ? getPageViewsForPath(company, prevMonthKey, applyPath)
       : null;
     const prevApplySame = prevMonthKey && applyPath && prevPartialEnd
-      ? getPageActiveUsersForPath(company, prevMonthKey, applyPath, prevPartialEnd)
+      ? getPageViewsForPath(company, prevMonthKey, applyPath, prevPartialEnd)
       : null;
     const applyFields = buildStepMoMFields(applyPartial, applyFull, prevApply, coverageMeta, prevApplySame);
     kpisMap.mobileSimApply = {
@@ -3770,7 +3789,15 @@ app.get('/api/mobile-sim-flow', (req, res) => {
   const monthKey = start?.slice(0, 7);
   if (!monthKey) {
     return res.json({
-      steps: MOBILE_SIM_FLOW_STEPS.map((s) => ({ ...s, activeUsers: 0, prevActiveUsers: null, deltaPct: null, fromPrevStepPct: null })),
+      steps: MOBILE_SIM_FLOW_STEPS.map((s) => ({
+        ...s,
+        views: 0,
+        prevViews: null,
+        activeUsers: 0,
+        prevActiveUsers: null,
+        deltaPct: null,
+        fromPrevStepPct: null,
+      })),
       filter: { company, start, end },
     });
   }
@@ -3813,7 +3840,7 @@ app.get('/api/mobile-sim-flow/history', (req, res) => {
       label: monthKeyLabel(monthKey),
     };
     for (const step of steps) {
-      entry[step.key] = step.activeUsers;
+      entry[step.key] = step.views;
     }
     return entry;
   });
