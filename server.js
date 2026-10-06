@@ -654,6 +654,51 @@ function parseTrafficCsv(content, company, override = null, monthKey = null) {
   return { added, skipped };
 }
 
+function aggregatePagesCsvByPath(rows) {
+  const byPath = new Map();
+
+  for (const row of rows) {
+    const pagePath = normalizePagePathForAggregate(row['Page path and screen class']);
+    if (!pagePath) continue;
+
+    const views = parseNum(row['Views']);
+    const activeUsers = parseNum(row['Active users']);
+    const engagement = parseNum(row['Average engagement time per active user']);
+    const existing = byPath.get(pagePath);
+
+    if (!existing) {
+      byPath.set(pagePath, {
+        page_path: pagePath,
+        views,
+        active_users: activeUsers,
+        event_count: parseNum(row['Event count']),
+        key_events: parseNum(row['Key events']),
+        total_revenue: parseNum(row['Total revenue']),
+        _engagementTimeSum: engagement * activeUsers,
+      });
+      continue;
+    }
+
+    existing.views += views;
+    existing.active_users += activeUsers;
+    existing.event_count += parseNum(row['Event count']);
+    existing.key_events += parseNum(row['Key events']);
+    existing.total_revenue += parseNum(row['Total revenue']);
+    existing._engagementTimeSum += engagement * activeUsers;
+  }
+
+  return [...byPath.values()].map((row) => ({
+    page_path: row.page_path,
+    views: row.views,
+    active_users: row.active_users,
+    views_per_user: row.active_users > 0 ? row.views / row.active_users : 0,
+    avg_engagement_time: row.active_users > 0 ? row._engagementTimeSum / row.active_users : 0,
+    event_count: row.event_count,
+    key_events: row.key_events,
+    total_revenue: row.total_revenue,
+  }));
+}
+
 function parsePagesCsv(content, company, override, monthKey = null) {
   const header = parseGa4Header(content);
   const { startDate, endDate } = resolveGa4StoreDates(header, override, monthKey);
@@ -662,9 +707,10 @@ function parsePagesCsv(content, company, override, monthKey = null) {
   const lines = content.split('\n');
   const dataLines = lines.filter((l) => !l.trim().startsWith('#') && l.trim() !== '');
   const rows = parse(dataLines.join('\n'), { columns: true, skip_empty_lines: true, bom: true });
+  const aggregated = aggregatePagesCsvByPath(rows);
 
   const stmt = db.prepare(`
-    INSERT INTO pages_screens
+    INSERT OR REPLACE INTO pages_screens
     (company, start_date, end_date, page_path, views, active_users, views_per_user,
      avg_engagement_time, event_count, key_events, total_revenue)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -673,22 +719,19 @@ function parsePagesCsv(content, company, override, monthKey = null) {
   let added = 0;
   let skipped = 0;
 
-  for (const row of rows) {
-    const pagePath = normalizePagePathForAggregate(row['Page path and screen class']);
-    if (!pagePath) continue;
-
+  for (const row of aggregated) {
     const result = stmt.run(
       company,
       startDate,
       endDate,
-      pagePath,
-      parseNum(row['Views']),
-      parseNum(row['Active users']),
-      parseNum(row['Views per active user']),
-      parseNum(row['Average engagement time per active user']),
-      parseNum(row['Event count']),
-      parseNum(row['Key events']),
-      parseNum(row['Total revenue'])
+      row.page_path,
+      row.views,
+      row.active_users,
+      row.views_per_user,
+      row.avg_engagement_time,
+      row.event_count,
+      row.key_events,
+      row.total_revenue
     );
 
     if (result.changes > 0) added++;
