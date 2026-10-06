@@ -94,6 +94,11 @@ function normalizePagePathForAggregate(path) {
   return p.replace(/\/+$/, '') || '/';
 }
 
+function ga4ExportContainedInFilter(exportStart, exportEnd, filterStart, filterEnd) {
+  if (!exportStart || !exportEnd || !filterStart || !filterEnd) return true;
+  return exportStart >= filterStart && exportEnd <= filterEnd;
+}
+
 function pageExportRowScore(row, filterStart, filterEnd) {
   const end = String(row.end_date || '');
   const start = String(row.start_date || '');
@@ -102,8 +107,24 @@ function pageExportRowScore(row, filterStart, filterEnd) {
   else if (filterEnd && end <= filterEnd) score += 60;
   const spanDays = dayCount(start, end);
   score += Math.max(0, 31 - Math.min(spanDays, 31));
-  score += (row.active_users || 0) / 1_000_000;
+  const magnitude = row.total_users ?? row.active_users ?? 0;
+  score += magnitude / 1_000_000;
   return score;
+}
+
+function pickBestGa4DatedExportRow(candidate, incumbent, filterStart, filterEnd) {
+  if (!incumbent) return candidate;
+  const cs = pageExportRowScore(candidate, filterStart, filterEnd);
+  const is = pageExportRowScore(incumbent, filterStart, filterEnd);
+  if (cs !== is) return cs > is ? candidate : incumbent;
+  if (String(candidate.end_date || '') !== String(incumbent.end_date || '')) {
+    return String(candidate.end_date || '') > String(incumbent.end_date || '')
+      ? candidate
+      : incumbent;
+  }
+  const cMag = candidate.total_users ?? candidate.active_users ?? 0;
+  const iMag = incumbent.total_users ?? incumbent.active_users ?? 0;
+  return cMag >= iMag ? candidate : incumbent;
 }
 
 function pickBestPageExportRow(candidate, incumbent, filterStart, filterEnd) {
@@ -184,47 +205,39 @@ function trafficKpisFromRows(rows) {
 }
 
 function prorateUsersRows(rows, filterStart, filterEnd) {
-  const byChannel = {};
+  const byChannel = new Map();
 
   for (const row of rows) {
     const fraction = overlapFraction(row.start_date, row.end_date, filterStart, filterEnd);
     if (fraction <= 0) continue;
 
     const channel = row.channel_group;
-    if (!byChannel[channel]) {
-      byChannel[channel] = {
-        ...row,
-        total_users: 0,
-        new_users: 0,
-        returning_users: 0,
-        event_count: 0,
-        key_events: 0,
-        _engagementTimeSum: 0,
-        _usersForTime: 0,
-      };
-    }
-
-    const bucket = byChannel[channel];
-    // GA4 User Acquisition exports are period totals for the CSV date range, not daily
-    // rates — never scale down by overlap fraction (that wrongly turns 550 MTD into ~423).
-    const users = row.total_users || 0;
-    bucket.total_users += users;
-    bucket.new_users += row.new_users || 0;
-    bucket.returning_users += row.returning_users || 0;
-    bucket.event_count += row.event_count || 0;
-    bucket.key_events += row.key_events || 0;
-    bucket._engagementTimeSum += row.avg_engagement_time * users;
-    bucket._usersForTime += users;
+    const existing = byChannel.get(channel);
+    byChannel.set(channel, pickBestGa4DatedExportRow(row, existing, filterStart, filterEnd));
   }
 
-  return Object.values(byChannel)
-    .map((row) => ({
-      ...row,
-      avg_engagement_time: row._usersForTime > 0 ? row._engagementTimeSum / row._usersForTime : 0,
-      engaged_sessions_per_user: row.total_users > 0
-        ? (row.engaged_sessions_per_user || 0)
-        : 0,
-    }))
+  return [...byChannel.values()]
+    .map((row) => {
+      const fraction = overlapFraction(row.start_date, row.end_date, filterStart, filterEnd);
+      const contained = ga4ExportContainedInFilter(
+        row.start_date,
+        row.end_date,
+        filterStart,
+        filterEnd,
+      );
+      const scale = contained ? 1 : fraction;
+      const users = Math.round((row.total_users || 0) * scale);
+      return {
+        ...row,
+        total_users: users,
+        new_users: Math.round((row.new_users || 0) * scale),
+        returning_users: Math.round((row.returning_users || 0) * scale),
+        event_count: Math.round((row.event_count || 0) * scale),
+        key_events: Math.round((row.key_events || 0) * scale),
+        avg_engagement_time: row.avg_engagement_time || 0,
+        engaged_sessions_per_user: row.engaged_sessions_per_user || 0,
+      };
+    })
     .sort((a, b) => b.total_users - a.total_users);
 }
 
@@ -291,6 +304,8 @@ module.exports = {
   websiteUsersSourceBreakdown,
   websiteUsersSourceBreakdownFromChannelMap,
   dayCount,
+  ga4ExportContainedInFilter,
   normalizePagePathForAggregate,
   pickBestPageExportRow,
+  pickBestGa4DatedExportRow,
 };
