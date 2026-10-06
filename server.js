@@ -1026,6 +1026,25 @@ function proratePrevMonth(prevFullValue, asOfDate) {
   return prevFullValue * ratio;
 }
 
+/**
+ * GA4 CSVs sometimes store full-month totals on a short date range (e.g. Sep 1–5
+ * labels after end_date repair). When the clipped prior-month total still matches
+ * the full prior month, use day-ratio proration instead of the inflated short window.
+ */
+function resolveGa4SamePeriodBaseline(samePeriodValue, prevFullValue, asOfDate) {
+  if (samePeriodValue == null) {
+    return prevFullValue != null ? proratePrevMonth(prevFullValue, asOfDate) : null;
+  }
+  if (
+    prevFullValue != null
+    && prevFullValue > 0
+    && samePeriodValue >= prevFullValue * 0.95
+  ) {
+    return proratePrevMonth(prevFullValue, asOfDate);
+  }
+  return samePeriodValue;
+}
+
 function getDataCoverageRow(company) {
   return db.prepare(`
     SELECT company, data_through_date, updated_at
@@ -1226,9 +1245,11 @@ function buildStepMoMFields(partialValue, fullValue, prevValue, coverageMeta, pr
     proratedDeltaPct: null,
   };
   if (!coverageMeta?.applies || prevActiveUsers == null) return base;
-  const prevProrated = prevSamePeriodValue != null
-    ? prevSamePeriodValue
-    : proratePrevMonth(prevActiveUsers, coverageMeta.asOfDate);
+  const prevProrated = resolveGa4SamePeriodBaseline(
+    prevSamePeriodValue,
+    prevActiveUsers,
+    coverageMeta.asOfDate,
+  );
   return {
     ...base,
     prevProratedValue: prevProrated != null ? Math.round(prevProrated * 10) / 10 : null,
@@ -1239,7 +1260,11 @@ function buildStepMoMFields(partialValue, fullValue, prevValue, coverageMeta, pr
 function resolvePrevProratedValue(key, prevValue, coverageMeta, prevSamePeriod) {
   if (prevValue == null || !coverageMeta?.applies) return null;
   if (DAILY_PARTIAL_PREV_KEYS.has(key) && prevSamePeriod?.[key] != null) {
-    return prevSamePeriod[key];
+    return resolveGa4SamePeriodBaseline(
+      prevSamePeriod[key],
+      prevValue,
+      coverageMeta.asOfDate,
+    );
   }
   return proratePrevMonth(prevValue, coverageMeta.asOfDate);
 }
